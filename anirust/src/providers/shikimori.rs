@@ -1,13 +1,10 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
-use crate::domain::{
-    Anime, AnimeId, Episode, ProviderCapabilities, ProviderError, ProviderId, ProviderResult,
-    SeriesEntry,
-};
-use crate::providers::AnimeProvider;
-use crate::registry::ProviderFactory;
+use crate::domain::{Anime, AnimeId, ProviderError, ProviderId, ProviderResult};
+use crate::providers::utils::{map_reqwest_error, normalized_text, parse_url};
+use crate::providers::MetadataProvider;
+use crate::registry::MetadataProviderFactory;
 
 const SHIKIMORI_GRAPHQL_URL: &str = "https://shiki.one/api/graphql";
 const DEFAULT_LIMIT: i32 = 20;
@@ -125,25 +122,13 @@ impl ShikimoriProvider {
 }
 
 #[async_trait]
-impl AnimeProvider for ShikimoriProvider {
+impl MetadataProvider for ShikimoriProvider {
     fn id(&self) -> ProviderId {
         ProviderId::from("shikimori")
     }
 
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new(true, false, false)
-    }
-
     async fn search(&self, query: &str) -> ProviderResult<Vec<Anime>> {
         self.search_anime(query, DEFAULT_LIMIT).await
-    }
-
-    async fn series(&self, _anime_id: &AnimeId) -> ProviderResult<Vec<SeriesEntry>> {
-        ProviderResult::error(ProviderError::new("not implemented", false))
-    }
-
-    async fn episodes(&self, _series_id: &str) -> ProviderResult<Vec<Episode>> {
-        ProviderResult::error(ProviderError::new("not implemented", false))
     }
 }
 
@@ -338,21 +323,6 @@ fn push_unique(titles: &mut Vec<String>, primary: &str, value: String) {
     }
 }
 
-fn normalized_text(value: String) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn parse_url(value: &str) -> Option<Url> {
-    Url::parse(value)
-        .ok()
-        .or_else(|| Url::parse(&format!("https:{}", value)).ok())
-}
-
 fn graphql_error(errors: Vec<GraphQlError>) -> ProviderError {
     let message = errors
         .into_iter()
@@ -362,12 +332,8 @@ fn graphql_error(errors: Vec<GraphQlError>) -> ProviderError {
     ProviderError::new(message, false)
 }
 
-fn map_reqwest_error(error: reqwest::Error) -> ProviderError {
-    ProviderError::new(error.to_string(), error.is_timeout() || error.is_connect())
-}
-
 inventory::submit! {
-    ProviderFactory {
+    MetadataProviderFactory {
         id: "shikimori",
         build: || Box::new(ShikimoriProvider::new()),
     }

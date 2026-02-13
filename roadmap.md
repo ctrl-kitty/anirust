@@ -14,7 +14,7 @@ Milestone 0 - Repo Bootstrap
   - domain (core models, ids, errors)
   - providers (Shikimori, Yummy)
   - registry (provider auto-registration)
-  - services (search, unify, selection)
+  - services (catalog, unify)
   - settings
   - ui
   - player
@@ -38,6 +38,8 @@ Milestone 2 - Provider Registry
   - search(query) -> ProviderResult<Vec<Anime>>
   - series(anime_id) -> ProviderResult<Vec<SeriesEntry>>
   - episodes(series_id) -> ProviderResult<Vec<Episode>>
+- Create MetadataProvider trait:
+  - search(query) -> ProviderResult<Vec<Anime>>
 - Implement compile-time discovery using the inventory crate.
 - Add a provider registry loader used by services and UI.
 
@@ -62,7 +64,7 @@ Milestone 4 - Shikimori Provider (Metadata)
 - Map anime search results into Anime with AnimeId.
 - Keep Shikimori as metadata source for unification and canonical titles.
 
-Status: in progress. (Search mapping implemented; no unification yet.)
+Status: done. (Metadata search + merge in CatalogService.)
 
 Milestone 5 - Yummy Provider (Streaming)
 - Implement API client for https://api.yani.tv with X-Application header.
@@ -77,10 +79,9 @@ Milestone 6 - Unification Service
 - Combine results from providers by AnimeId:
   - Shikimori data = canonical metadata.
   - Yummy data = playback and episodes.
-- If Yummy lacks IDs, resolve via Shikimori search by title (fuzzy or normalized).
 - Provide merged list for UI.
 
-Status: not started.
+Status: done. (Merged via unify + CatalogService.)
 
 Milestone 7 - TUI Flow
 - Build state machine:
@@ -106,14 +107,14 @@ Milestone 9 - Tests (Core Only)
 - Dubbing preference selection.
 - Player command builder.
 
-Status: in progress. (Integration tests for Yummy/Kodik and playback; settings + selection tests added.)
+Status: mostly done. (Unit tests for unify, settings, registry, player, catalog; integration tests for Yummy/Kodik.)
 
 Milestone 10 - Docs and Polish
 - Add README with install and run instructions and provider setup.
 - Document required tokens and API limits.
 - Add example config and troubleshooting.
 
-Status: in progress. (development.md updated; README pending.)
+Status: in progress. (README + module docs updated; troubleshooting still light.)
 
 Deferred or Future
 - Shikimori or MAL user lists sync.

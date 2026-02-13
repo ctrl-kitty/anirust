@@ -1,5 +1,5 @@
-use super::handlers_flow::{select_series_index, sort_search_results};
-use crate::domain::{Anime, AnimeId, ProviderId, SeriesEntry};
+use super::handlers_flow::select_series_index;
+use crate::domain::{AnimeId, ProviderId, SeriesEntry};
 
 #[test]
 fn selects_series_by_matching_yummy_id() {
@@ -45,40 +45,4 @@ fn no_selection_when_no_yummy_id() {
 
     let index = select_series_index(&anime_id, &series);
     assert_eq!(index, None);
-}
-
-#[test]
-fn search_sort_prefers_exact_match() {
-    let mut items = vec![
-        Anime {
-            id: AnimeId::default(),
-            title: "Наруто: Ураганные хроники".to_string(),
-            alt_titles: Vec::new(),
-            synopsis: None,
-            poster_url: None,
-            source: None,
-        },
-        Anime {
-            id: AnimeId::default(),
-            title: "Наруто".to_string(),
-            alt_titles: Vec::new(),
-            synopsis: None,
-            poster_url: None,
-            source: None,
-        },
-        Anime {
-            id: AnimeId::default(),
-            title: "Боруто".to_string(),
-            alt_titles: Vec::new(),
-            synopsis: None,
-            poster_url: None,
-            source: None,
-        },
-    ];
-
-    sort_search_results("Наруто", &mut items);
-    assert_eq!(
-        items.first().map(|anime| anime.title.as_str()),
-        Some("Наруто")
-    );
 }

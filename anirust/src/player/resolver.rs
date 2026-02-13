@@ -36,37 +36,59 @@ static UNKNOWN_RESOLVER: UnsupportedResolver = UnsupportedResolver {
     label: "Unknown",
 };
 
+struct ResolverEntry {
+    kind: PlayerKind,
+    order: u8,
+    resolver: &'static dyn PlayerResolver,
+}
+
+static RESOLVERS: [ResolverEntry; 4] = [
+    ResolverEntry {
+        kind: PlayerKind::Kodik,
+        order: 1,
+        resolver: &KODIK_RESOLVER,
+    },
+    ResolverEntry {
+        kind: PlayerKind::Direct,
+        order: 2,
+        resolver: &DIRECT_RESOLVER,
+    },
+    ResolverEntry {
+        kind: PlayerKind::Alloha,
+        order: 3,
+        resolver: &ALLOHA_RESOLVER,
+    },
+    ResolverEntry {
+        kind: PlayerKind::Unknown,
+        order: 9,
+        resolver: &UNKNOWN_RESOLVER,
+    },
+];
+
 pub fn player_label(kind: PlayerKind) -> &'static str {
-    resolver_for(kind).label()
+    resolver_entry(kind).resolver.label()
 }
 
 pub fn player_order(kind: PlayerKind) -> u8 {
-    match kind {
-        PlayerKind::Kodik => 1,
-        PlayerKind::Direct => 2,
-        PlayerKind::Alloha => 3,
-        PlayerKind::Unknown => 9,
-    }
+    resolver_entry(kind).order
 }
 
 pub fn is_supported_kind(kind: PlayerKind) -> bool {
-    resolver_for(kind).supported()
+    resolver_entry(kind).resolver.supported()
 }
 
 pub(crate) async fn resolve_with_kind(
     kind: PlayerKind,
     url: &Url,
 ) -> Result<ResolvedMedia> {
-    resolver_for(kind).resolve(url).await
+    resolver_entry(kind).resolver.resolve(url).await
 }
 
-fn resolver_for(kind: PlayerKind) -> &'static dyn PlayerResolver {
-    match kind {
-        PlayerKind::Kodik => &KODIK_RESOLVER,
-        PlayerKind::Direct => &DIRECT_RESOLVER,
-        PlayerKind::Alloha => &ALLOHA_RESOLVER,
-        PlayerKind::Unknown => &UNKNOWN_RESOLVER,
-    }
+fn resolver_entry(kind: PlayerKind) -> &'static ResolverEntry {
+    RESOLVERS
+        .iter()
+        .find(|entry| entry.kind == kind)
+        .unwrap_or_else(|| &RESOLVERS[RESOLVERS.len() - 1])
 }
 
 #[async_trait]

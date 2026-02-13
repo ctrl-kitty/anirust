@@ -13,6 +13,9 @@ mod app_tests;
 #[cfg(test)]
 mod handlers_tests;
 
+#[cfg(test)]
+mod input_state_tests;
+
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyEventKind};

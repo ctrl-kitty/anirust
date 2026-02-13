@@ -5,9 +5,6 @@ use crate::player;
 
 use super::app::{App, Focus, View, SAVE_OPTIONS};
 use super::handlers_flow::{open_episodes, open_series, perform_search};
-use super::input::{
-    delete_char, input_len, insert_char, move_cursor_left, move_cursor_right,
-};
 use super::selection::{select_next, select_prev};
 
 pub(crate) async fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
@@ -43,15 +40,15 @@ async fn handle_search_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 perform_search(app).await;
             }
             KeyCode::Backspace => {
-                delete_char(&mut app.search_input, &mut app.search_cursor);
+                app.search_input.delete_char();
             }
-            KeyCode::Left => move_cursor_left(&mut app.search_cursor),
-            KeyCode::Right => move_cursor_right(&mut app.search_cursor, &app.search_input),
-            KeyCode::Home => app.search_cursor = 0,
-            KeyCode::End => app.search_cursor = input_len(&app.search_input),
+            KeyCode::Left => app.search_input.move_left(),
+            KeyCode::Right => app.search_input.move_right(),
+            KeyCode::Home => app.search_input.move_home(),
+            KeyCode::End => app.search_input.move_end(),
             KeyCode::Char(ch) => {
                 if !key.modifiers.contains(KeyModifiers::CONTROL) {
-                    insert_char(&mut app.search_input, &mut app.search_cursor, ch);
+                    app.search_input.insert_char(ch);
                 }
             }
             _ => {}
@@ -203,16 +200,16 @@ async fn handle_episodes_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.focus = Focus::List;
             }
             KeyCode::Backspace => {
-                delete_char(&mut app.filter_input, &mut app.filter_cursor);
+                app.filter_input.delete_char();
                 app.apply_episode_filter();
             }
-            KeyCode::Left => move_cursor_left(&mut app.filter_cursor),
-            KeyCode::Right => move_cursor_right(&mut app.filter_cursor, &app.filter_input),
-            KeyCode::Home => app.filter_cursor = 0,
-            KeyCode::End => app.filter_cursor = input_len(&app.filter_input),
+            KeyCode::Left => app.filter_input.move_left(),
+            KeyCode::Right => app.filter_input.move_right(),
+            KeyCode::Home => app.filter_input.move_home(),
+            KeyCode::End => app.filter_input.move_end(),
             KeyCode::Char(ch) => {
                 if !key.modifiers.contains(KeyModifiers::CONTROL) {
-                    insert_char(&mut app.filter_input, &mut app.filter_cursor, ch);
+                    app.filter_input.insert_char(ch);
                     app.apply_episode_filter();
                 }
             }

@@ -2,7 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use anirust::domain::{AnimeId, ProviderError, ProviderId, ProviderStatus};
+use anirust::formatting::format_id;
 use anirust::registry::ProviderRegistry;
+use anirust::services::catalog::CatalogService;
 use anirust::settings;
 use anirust::ui;
 
@@ -61,7 +63,7 @@ async fn main() -> Result<()> {
 
 fn list_providers() {
     let registry = ProviderRegistry::load();
-    println!("Registered providers:");
+    println!("Anime providers:");
     for provider in registry.providers() {
         let provider = provider.as_ref();
         let id = provider.id();
@@ -70,6 +72,15 @@ fn list_providers() {
             "- {} (search: {}, series: {}, episodes: {})",
             id, caps.search, caps.series_list, caps.episodes
         );
+    }
+
+    if !registry.metadata_providers().is_empty() {
+        println!("Metadata providers:");
+        for provider in registry.metadata_providers() {
+            let provider = provider.as_ref();
+            let id = provider.id();
+            println!("- {} (search only)", id);
+        }
     }
 }
 
@@ -81,6 +92,26 @@ async fn run_search(query: String, provider: Option<String>) -> Result<()> {
     println!("Searching for: {}", query);
 
     for provider in registry.providers() {
+        let provider = provider.as_ref();
+        let id = provider.id();
+        if let Some(filter) = filter.as_ref() {
+            if &id != filter {
+                continue;
+            }
+        }
+
+        matched = true;
+        let metadata = if id == ProviderId::from("yummy") {
+            registry.get_metadata(&ProviderId::from("shikimori"))
+        } else {
+            None
+        };
+        let catalog = CatalogService::new(provider, metadata);
+        let result = catalog.search(&query).await;
+        print_search_result(&id, result);
+    }
+
+    for provider in registry.metadata_providers() {
         let provider = provider.as_ref();
         let id = provider.id();
         if let Some(filter) = filter.as_ref() {
@@ -113,6 +144,12 @@ async fn run_series(anime_id: u64, provider: Option<String>) -> Result<()> {
     let provider = registry
         .get(&provider_id)
         .ok_or_else(|| anyhow::anyhow!("provider not found: {}", provider_id))?;
+    let metadata = if provider_id == ProviderId::from("yummy") {
+        registry.get_metadata(&ProviderId::from("shikimori"))
+    } else {
+        None
+    };
+    let catalog = CatalogService::new(provider, metadata);
 
     let anime_id = AnimeId {
         shikimori_id: None,
@@ -120,7 +157,7 @@ async fn run_series(anime_id: u64, provider: Option<String>) -> Result<()> {
         yummy_id: Some(anime_id),
     };
 
-    let result = provider.series(&anime_id).await;
+    let result = catalog.series(&anime_id).await;
     let anirust::domain::ProviderResult {
         status,
         data,
@@ -129,8 +166,7 @@ async fn run_series(anime_id: u64, provider: Option<String>) -> Result<()> {
 
     match status {
         ProviderStatus::Ok | ProviderStatus::Partial => {
-            let mut entries = data.unwrap_or_default();
-            entries.sort_by_key(|entry| entry.order.unwrap_or(u32::MAX));
+            let entries = data.unwrap_or_default();
             if status == ProviderStatus::Partial {
                 if let Some(error) = error.as_ref() {
                     println!("Warning: {}", error.message);
@@ -163,8 +199,14 @@ async fn run_episodes(anime_id: u64, provider: Option<String>) -> Result<()> {
     let provider = registry
         .get(&provider_id)
         .ok_or_else(|| anyhow::anyhow!("provider not found: {}", provider_id))?;
+    let metadata = if provider_id == ProviderId::from("yummy") {
+        registry.get_metadata(&ProviderId::from("shikimori"))
+    } else {
+        None
+    };
+    let catalog = CatalogService::new(provider, metadata);
 
-    let result = provider.episodes(&anime_id.to_string()).await;
+    let result = catalog.episodes(&anime_id.to_string()).await;
     let anirust::domain::ProviderResult {
         status,
         data,
@@ -173,8 +215,7 @@ async fn run_episodes(anime_id: u64, provider: Option<String>) -> Result<()> {
 
     match status {
         ProviderStatus::Ok | ProviderStatus::Partial => {
-            let mut episodes = data.unwrap_or_default();
-            episodes.sort_by_key(|episode| episode.number.unwrap_or(u32::MAX));
+            let episodes = data.unwrap_or_default();
             if status == ProviderStatus::Partial {
                 if let Some(error) = error.as_ref() {
                     println!("Warning: {}", error.message);
@@ -267,10 +308,4 @@ fn print_provider_error(id: &ProviderId, status: ProviderStatus, error: Option<P
         .map(|error| error.message)
         .unwrap_or_else(|| "unknown error".to_string());
     println!("[{}] {:?}: {}", id, status, message);
-}
-
-fn format_id(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string())
 }

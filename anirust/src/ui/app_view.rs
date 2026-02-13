@@ -2,18 +2,17 @@ use ratatui::style::{Color, Style};
 use ratatui::widgets::ListItem;
 
 use crate::domain::Episode;
+use crate::formatting::format_id;
 use crate::player;
 
 use super::app::{App, Focus, View, SAVE_OPTIONS};
-use super::input::visible_input;
 
 impl App {
     pub(crate) fn header(&self, width: u16) -> (&'static str, String, Option<u16>, Style) {
         let inner_width = width.saturating_sub(2);
         match self.view {
             View::Search => {
-                let (visible, offset) =
-                    visible_input(&self.search_input, self.search_cursor, inner_width);
+                let (visible, offset) = self.search_input.visible(inner_width);
                 let cursor = if self.focus == Focus::Input {
                     Some(offset)
                 } else {
@@ -71,8 +70,7 @@ impl App {
                 if self.focus == Focus::Filter || !self.filter_input.is_empty() {
                     let prefix = "Filter: ";
                     let available = inner_width.saturating_sub(prefix.len() as u16);
-                    let (visible, offset) =
-                        visible_input(&self.filter_input, self.filter_cursor, available);
+                    let (visible, offset) = self.filter_input.visible(available);
                     let text = format!("{}{}", prefix, visible);
                     let cursor = if self.focus == Focus::Filter {
                         Some(prefix.len() as u16 + offset)
@@ -268,10 +266,4 @@ impl App {
 
         parts.join(" - ")
     }
-}
-
-fn format_id(value: Option<u64>) -> String {
-    value
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string())
 }

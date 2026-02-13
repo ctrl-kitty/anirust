@@ -1,10 +1,10 @@
 use crate::domain::{Anime, AnimeId, ProviderError, ProviderResult, ProviderStatus};
-use crate::providers::AnimeProvider;
+use crate::providers::MetadataProvider;
 
 pub async fn unify_search(
     query: &str,
     yummy_result: ProviderResult<Vec<Anime>>,
-    shiki: Option<&dyn AnimeProvider>,
+    shiki: Option<&dyn MetadataProvider>,
 ) -> ProviderResult<Vec<Anime>> {
     let status = yummy_result.status;
     let yummy = yummy_result.data.unwrap_or_default();

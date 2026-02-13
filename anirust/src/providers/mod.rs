@@ -5,7 +5,15 @@ use crate::domain::{
 };
 
 pub mod shikimori;
+pub mod utils;
 pub mod yummy;
+
+#[async_trait]
+pub trait MetadataProvider: Send + Sync {
+    fn id(&self) -> ProviderId;
+
+    async fn search(&self, query: &str) -> ProviderResult<Vec<Anime>>;
+}
 
 #[async_trait]
 pub trait AnimeProvider: Send + Sync {
@@ -16,3 +24,9 @@ pub trait AnimeProvider: Send + Sync {
     async fn series(&self, anime_id: &AnimeId) -> ProviderResult<Vec<SeriesEntry>>;
     async fn episodes(&self, series_id: &str) -> ProviderResult<Vec<Episode>>;
 }
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod utils_tests;

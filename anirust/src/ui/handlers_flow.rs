@@ -1,59 +1,36 @@
-use crate::domain::{Anime, Episode, ProviderError, ProviderStatus, SeriesEntry};
-use crate::player;
-use crate::services::unify;
+use crate::domain::{ProviderError, ProviderStatus, SeriesEntry};
+use crate::services::catalog::CatalogService;
 
 use super::app::{collect_dubbings, collect_players, App, Focus, View};
 use super::selection::select_first;
 
 pub(crate) async fn perform_search(app: &mut App) {
-    let query = app.search_input.trim().to_string();
+    let query = app.search_input.value().trim().to_string();
     if query.is_empty() {
         app.set_status("Type a query and press Enter");
         return;
     }
 
-    let caps = match app.provider() {
-        Some(provider) => provider.capabilities(),
+    app.set_status("Searching...");
+
+    let provider = match app.provider() {
+        Some(provider) => provider,
         None => {
             app.set_status(format!("Provider not found: {}", app.provider_id));
             return;
         }
     };
-
-    if !caps.search {
-        app.set_status(format!("Provider {} does not support search", app.provider_id));
-        return;
-    }
-
-    app.set_status("Searching...");
-
-    let result = if app.provider_id.0 == "yummy" {
-        let yummy = match app.provider() {
-            Some(provider) => provider,
-            None => {
-                app.set_status(format!("Provider not found: {}", app.provider_id));
-                return;
-            }
-        };
-
-        let yummy_result = yummy.search(&query).await;
-        let shiki = app
-            .registry
-            .get(&crate::domain::ProviderId::from("shikimori"));
-        unify::unify_search(&query, yummy_result, shiki).await
+    let metadata = if app.provider_id.0 == "yummy" {
+        app.registry
+            .get_metadata(&crate::domain::ProviderId::from("shikimori"))
     } else {
-        match app.provider() {
-            Some(provider) => provider.search(&query).await,
-            None => {
-                app.set_status(format!("Provider not found: {}", app.provider_id));
-                return;
-            }
-        }
+        None
     };
+    let catalog = CatalogService::new(provider, metadata);
+    let result = catalog.search(&query).await;
 
     let status = result.status;
-    let mut data = result.data.unwrap_or_default();
-    sort_search_results(&query, &mut data);
+    let data = result.data.unwrap_or_default();
     let error = result.error;
 
     match status {
@@ -95,30 +72,22 @@ pub(crate) async fn open_series(app: &mut App) {
 
     app.current_anime_id = Some(anime_id.clone());
 
-    let caps = match app.provider() {
-        Some(provider) => provider.capabilities(),
-        None => {
-            app.set_status(format!("Provider not found: {}", app.provider_id));
-            return;
-        }
-    };
-
-    if !caps.series_list {
-        app.set_status(format!(
-            "Provider {} does not support series list",
-            app.provider_id
-        ));
-        return;
-    }
-
     app.set_status("Loading series...");
-    let result = match app.provider() {
-        Some(provider) => provider.series(&anime_id).await,
+    let provider = match app.provider() {
+        Some(provider) => provider,
         None => {
             app.set_status(format!("Provider not found: {}", app.provider_id));
             return;
         }
     };
+    let metadata = if app.provider_id.0 == "yummy" {
+        app.registry
+            .get_metadata(&crate::domain::ProviderId::from("shikimori"))
+    } else {
+        None
+    };
+    let catalog = CatalogService::new(provider, metadata);
+    let result = catalog.series(&anime_id).await;
 
     let status = result.status;
     let data = result.data.unwrap_or_default();
@@ -168,47 +137,40 @@ pub(crate) async fn open_episodes(app: &mut App) {
         }
     };
 
-    let caps = match app.provider() {
-        Some(provider) => provider.capabilities(),
-        None => {
-            app.set_status(format!("Provider not found: {}", app.provider_id));
-            return;
-        }
-    };
-
-    if !caps.episodes {
-        app.set_status(format!(
-            "Provider {} does not support episodes",
-            app.provider_id
-        ));
-        return;
-    }
-
     app.set_status("Loading episodes...");
-    let result = match app.provider() {
-        Some(provider) => provider.episodes(&series_id).await,
+    let provider = match app.provider() {
+        Some(provider) => provider,
         None => {
             app.set_status(format!("Provider not found: {}", app.provider_id));
             return;
         }
     };
+    let metadata = if app.provider_id.0 == "yummy" {
+        app.registry
+            .get_metadata(&crate::domain::ProviderId::from("shikimori"))
+    } else {
+        None
+    };
+    let catalog = CatalogService::new(provider, metadata);
+    let result = catalog.episodes_with_stats(&series_id).await;
 
     let status = result.status;
-    let data = result.data.unwrap_or_default();
-    let (filtered, dropped) = filter_supported_episodes(data);
-    if filtered.is_empty() {
-        app.set_status("No supported episodes found (Alloha only)");
-        return;
-    }
     let error = result.error;
+    let (filtered, dropped) = match result.data {
+        Some(data) => (data.episodes, data.dropped),
+        None => (Vec::new(), 0),
+    };
 
     match status {
         ProviderStatus::Ok | ProviderStatus::Partial => {
+            if filtered.is_empty() {
+                app.set_status("No supported episodes found (Alloha only)");
+                return;
+            }
             app.episodes_all = filtered;
             app.episodes_title = Some(series_title);
             app.current_series_id = Some(series_id);
             app.filter_input.clear();
-            app.filter_cursor = 0;
             app.selected_dubbing = None;
             app.selected_player = None;
             app.dubbing_options = collect_dubbings(&app.episodes_all);
@@ -275,21 +237,6 @@ fn provider_error_message(status: ProviderStatus, error: Option<ProviderError>) 
     format!("{:?}: {}", status, message)
 }
 
-fn filter_supported_episodes(episodes: Vec<Episode>) -> (Vec<Episode>, usize) {
-    let mut filtered = Vec::new();
-    let mut dropped = 0;
-    for episode in episodes {
-        if !player::is_supported_kind(episode.player_kind) {
-            dropped += 1;
-            continue;
-        }
-
-        filtered.push(episode);
-    }
-
-    (filtered, dropped)
-}
-
 pub(crate) fn select_series_index(
     anime_id: &crate::domain::AnimeId,
     series: &[SeriesEntry],
@@ -297,72 +244,4 @@ pub(crate) fn select_series_index(
     let yummy_id = anime_id.yummy_id?;
     let target = yummy_id.to_string();
     series.iter().position(|entry| entry.id == target)
-}
-
-pub(crate) fn sort_search_results(query: &str, items: &mut Vec<Anime>) {
-    if items.is_empty() {
-        return;
-    }
-
-    let query_norm = normalize_text(query);
-    let mut scored: Vec<(i64, usize, Anime)> = items
-        .drain(..)
-        .enumerate()
-        .map(|(idx, anime)| {
-            let score = similarity_score(&query_norm, &anime.title);
-            (score, idx, anime)
-        })
-        .collect();
-
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    items.extend(scored.into_iter().map(|(_, _, anime)| anime));
-}
-
-fn similarity_score(query_norm: &str, title: &str) -> i64 {
-    let title_norm = normalize_text(title);
-    if query_norm.is_empty() || title_norm.is_empty() {
-        return 0;
-    }
-
-    let mut score = 0i64;
-    if title_norm == query_norm {
-        score += 1000;
-    }
-    if title_norm.starts_with(query_norm) {
-        score += 600;
-    }
-    if title_norm.contains(query_norm) {
-        score += 400;
-    }
-
-    let query_tokens: Vec<&str> = query_norm.split_whitespace().collect();
-    let title_tokens: Vec<&str> = title_norm.split_whitespace().collect();
-    let mut token_hits = 0i64;
-    for token in query_tokens {
-        if title_tokens.iter().any(|value| *value == token) {
-            token_hits += 1;
-        }
-    }
-    score += token_hits * 100;
-
-    let diff = (title_norm.len() as i64 - query_norm.len() as i64).abs();
-    score -= diff;
-
-    score
-}
-
-fn normalize_text(value: &str) -> String {
-    value
-        .chars()
-        .flat_map(|ch| {
-            if ch.is_alphanumeric() {
-                ch.to_lowercase().collect::<Vec<_>>()
-            } else {
-                vec![' ']
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }

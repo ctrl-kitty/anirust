@@ -88,17 +88,20 @@ Keep changes minimal, follow existing patterns, and update tests when needed.
 - Maintain `View`/`Focus` transitions explicitly.
 - When adding UI lists, update both list items and footer hints.
 - Update filtering behavior in `app.rs` and view headers in `app_view.rs`.
+- Use `ui/input.rs` `InputState` for editable inputs.
 
 ### Provider/Player Conventions
-- Providers register via `inventory` and implement `AnimeProvider`.
-- Use `capabilities()` to drive UI decisions (search/series/episodes).
-- Episode filtering uses `player::is_supported_kind`.
-- Only Kodik/Direct resolvers are supported; others should be filtered.
-- When adding a new player, implement `PlayerResolver` and update `player_order`/`player_label`.
+- Providers register via `inventory` and implement `AnimeProvider` or `MetadataProvider`.
+- Capabilities are informational; CLI/TUI use `CatalogService` for search/series/episodes.
+- Episode filtering uses `player::is_supported_kind` (via `CatalogService`).
+- Only Kodik/Direct resolvers are supported; others are filtered.
+- When adding a new player, implement `PlayerResolver` and add an entry to `RESOLVERS` in
+  `anirust/src/player/resolver.rs`.
 - Keep `ResolvedMedia` as URL + headers; pass headers to mpv.
 
 ### Search / Unify
 - Search is client-sorted for relevance; keep sorting deterministic.
+- `CatalogService` handles search/series/episodes orchestration for CLI and TUI.
 - Unify service merges Shikimori metadata into Yummy results when IDs match.
 - Preserve Yummy IDs for series/episodes flow even after unify.
 
@@ -123,14 +126,19 @@ Keep changes minimal, follow existing patterns, and update tests when needed.
 - Network tests should create temp config dirs (see `tests/yummy_kodik.rs`).
 - Prefer deterministic tests; avoid relying on specific ordering unless sorted.
 - If a test uses time or randomness, bound or seed it.
+- Reusable test fakes live in `anirust/src/test_support.rs`.
 
 ## Project Layout (Key Files)
 - `anirust/src/domain/mod.rs`: core types, IDs, provider result types.
 - `anirust/src/providers/`: provider implementations.
-- `anirust/src/services/`: unify/search utilities.
+- `anirust/src/providers/utils.rs`: shared provider helpers.
+- `anirust/src/services/`: catalog/unify orchestration.
+- `anirust/src/services/catalog.rs`: shared search/series/episodes logic.
 - `anirust/src/player/`: playback resolution and mpv spawn.
 - `anirust/src/ui/`: TUI state, rendering, handlers.
 - `anirust/src/settings/mod.rs`: config and persistence.
+- `anirust/src/formatting.rs`: shared formatting helpers.
+- `anirust/src/test_support.rs`: test doubles/utilities.
 - `anirust/tests/`: integration tests.
 
 ## Workflow Expectations for Agents

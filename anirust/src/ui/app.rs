@@ -8,6 +8,7 @@ use crate::providers::AnimeProvider;
 use crate::registry::ProviderRegistry;
 use crate::settings;
 
+use super::input::InputState;
 use super::selection::select_first;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +42,8 @@ pub(crate) const SAVE_OPTIONS: [&str; 2] = ["Yes, save as default", "No, just th
 pub(crate) struct App {
     pub(crate) view: View,
     pub(crate) focus: Focus,
-    pub(crate) search_input: String,
-    pub(crate) search_cursor: usize,
-    pub(crate) filter_input: String,
-    pub(crate) filter_cursor: usize,
+    pub(crate) search_input: InputState,
+    pub(crate) filter_input: InputState,
     pub(crate) status: String,
     pub(crate) results: Vec<Anime>,
     pub(crate) series: Vec<SeriesEntry>,
@@ -79,10 +78,8 @@ impl App {
         let mut app = Self {
             view: View::Search,
             focus: Focus::Input,
-            search_input: String::new(),
-            search_cursor: 0,
-            filter_input: String::new(),
-            filter_cursor: 0,
+            search_input: InputState::new(),
+            filter_input: InputState::new(),
             status: String::new(),
             results: Vec::new(),
             series: Vec::new(),
@@ -215,7 +212,7 @@ impl App {
     }
 
     pub(crate) fn apply_episode_filter(&mut self) {
-        let filter = self.filter_input.trim().to_lowercase();
+        let filter = self.filter_input.value().trim().to_lowercase();
         let selected = self.selected_dubbing.as_deref();
         let selected_player = self.selected_player;
 

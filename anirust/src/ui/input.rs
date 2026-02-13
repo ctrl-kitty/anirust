@@ -1,14 +1,72 @@
-pub(crate) fn input_len(input: &str) -> usize {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct InputState {
+    value: String,
+    cursor: usize,
+}
+
+impl InputState {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn value(&self) -> &str {
+        &self.value
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.value.clear();
+        self.cursor = 0;
+    }
+
+    pub(crate) fn insert_char(&mut self, ch: char) {
+        insert_char(&mut self.value, &mut self.cursor, ch);
+    }
+
+    pub(crate) fn delete_char(&mut self) {
+        delete_char(&mut self.value, &mut self.cursor);
+    }
+
+    pub(crate) fn move_left(&mut self) {
+        move_cursor_left(&mut self.cursor);
+    }
+
+    pub(crate) fn move_right(&mut self) {
+        move_cursor_right(&mut self.cursor, &self.value);
+    }
+
+    pub(crate) fn move_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    pub(crate) fn move_end(&mut self) {
+        self.cursor = input_len(&self.value);
+    }
+
+    pub(crate) fn visible(&self, width: u16) -> (String, u16) {
+        visible_input(&self.value, self.cursor, width)
+    }
+}
+
+fn input_len(input: &str) -> usize {
     input.chars().count()
 }
 
-pub(crate) fn insert_char(input: &mut String, cursor: &mut usize, ch: char) {
+fn insert_char(input: &mut String, cursor: &mut usize, ch: char) {
     let idx = byte_index(input, *cursor);
     input.insert(idx, ch);
     *cursor = cursor.saturating_add(1);
 }
 
-pub(crate) fn delete_char(input: &mut String, cursor: &mut usize) {
+fn delete_char(input: &mut String, cursor: &mut usize) {
     if *cursor == 0 {
         return;
     }
@@ -19,19 +77,19 @@ pub(crate) fn delete_char(input: &mut String, cursor: &mut usize) {
     *cursor = cursor.saturating_sub(1);
 }
 
-pub(crate) fn move_cursor_left(cursor: &mut usize) {
+fn move_cursor_left(cursor: &mut usize) {
     if *cursor > 0 {
         *cursor -= 1;
     }
 }
 
-pub(crate) fn move_cursor_right(cursor: &mut usize, input: &str) {
+fn move_cursor_right(cursor: &mut usize, input: &str) {
     if *cursor < input_len(input) {
         *cursor += 1;
     }
 }
 
-pub(crate) fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
+fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
     let width = width as usize;
     if width == 0 {
         return (String::new(), 0);
