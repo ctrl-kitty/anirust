@@ -4,7 +4,7 @@ This file is for coding agents working in this repository.
 Keep changes minimal, follow existing patterns, and update tests when needed.
 
 ## Repository Overview
-- Workspace root is `/home/ktvsky/coding/anirust-tui`.
+- Workspace root is `~/coding/anirust-tui`.
 - Main crate is `anirust/` (Rust 2021).
 - App is a Ratatui TUI with providers, settings, playback, and tests.
 - No Cursor or Copilot instructions were found in `.cursor/`, `.cursorrules`, or `.github/`.
