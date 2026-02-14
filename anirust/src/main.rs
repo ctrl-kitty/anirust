@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 use anirust::domain::{AnimeId, ProviderError, ProviderId, ProviderStatus};
 use anirust::formatting::format_id;
@@ -13,6 +14,8 @@ use anirust::ui;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
+    #[arg(long, global = true, value_name = "PATH")]
+    log_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -39,9 +42,10 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let Cli { command, log_file } = Cli::parse();
+    init_logging(log_file)?;
 
-    match cli.command {
+    match command {
         Some(Command::Settings) => {
             let state = settings::ensure_config()?;
             println!("Config path: {}", state.path.display());
@@ -58,6 +62,26 @@ async fn main() -> Result<()> {
         Some(Command::Tui) | None => ui::run().await?,
     }
 
+    Ok(())
+}
+
+fn init_logging(path: Option<PathBuf>) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("open log file {}", path.display()))?;
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .context("set global logger")?;
     Ok(())
 }
 

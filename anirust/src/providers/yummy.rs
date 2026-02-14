@@ -6,7 +6,9 @@ use crate::domain::{
     Anime, AnimeId, Episode, ProviderCapabilities, ProviderError, ProviderId, ProviderResult,
     PlayerKind, SeriesEntry, VoiceVariant,
 };
-use crate::providers::utils::{map_reqwest_error, normalize_id, normalized_text, parse_url};
+use crate::providers::utils::{
+    log_decode_error, map_reqwest_error, normalize_id, normalized_text, parse_url,
+};
 use crate::providers::AnimeProvider;
 use crate::registry::ProviderFactory;
 use crate::settings;
@@ -144,9 +146,20 @@ impl YummyProvider {
             )));
         }
 
-        let payload = match response.json::<YummyResponse<T>>().await {
-            Ok(payload) => payload,
+        let url = response.url().to_string();
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
             Err(err) => return Err(RequestError::Other(map_reqwest_error(err))),
+        };
+        let payload = match serde_json::from_slice::<YummyResponse<T>>(&bytes) {
+            Ok(payload) => payload,
+            Err(err) => {
+                log_decode_error("yummy", &url, status, &bytes, &err);
+                return Err(RequestError::Other(ProviderError::new(
+                    format!("error decoding response body: {}", err),
+                    false,
+                )));
+            }
         };
 
         Ok(payload)
@@ -307,7 +320,10 @@ struct YummySeriesEntry {
 impl YummySeriesEntry {
     fn into_series_entry(self) -> Option<SeriesEntry> {
         let id = normalize_id(Some(self.anime_id))?.to_string();
-        let order = self.data.and_then(|data| data.index);
+        let order = self
+            .data
+            .and_then(|data| data.index)
+            .and_then(|value| if value >= 0 { Some(value as u32) } else { None });
         Some(SeriesEntry {
             id,
             title: self.title,
@@ -319,7 +335,7 @@ impl YummySeriesEntry {
 
 #[derive(Debug, Deserialize)]
 struct YummySeriesData {
-    index: Option<u32>,
+    index: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

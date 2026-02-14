@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{Anime, AnimeId, ProviderError, ProviderId, ProviderResult};
-use crate::providers::utils::{map_reqwest_error, normalized_text, parse_url};
+use crate::providers::utils::{
+    log_decode_error, map_reqwest_error, normalized_text, parse_url,
+};
 use crate::providers::MetadataProvider;
 use crate::registry::MetadataProviderFactory;
 
@@ -83,9 +85,20 @@ impl ShikimoriProvider {
             ));
         }
 
-        let payload: GraphQlResponse<SearchData> = match response.json().await {
-            Ok(payload) => payload,
+        let url = response.url().to_string();
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
             Err(err) => return ProviderResult::error(map_reqwest_error(err)),
+        };
+        let payload: GraphQlResponse<SearchData> = match serde_json::from_slice(&bytes) {
+            Ok(payload) => payload,
+            Err(err) => {
+                log_decode_error("shikimori", &url, status, &bytes, &err);
+                return ProviderResult::error(ProviderError::new(
+                    format!("error decoding response body: {}", err),
+                    false,
+                ));
+            }
         };
 
         let errors = payload.errors.unwrap_or_default();

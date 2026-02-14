@@ -35,6 +35,12 @@ Run (recommended)
 nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- tui"
 ```
 
+Logging
+- Use `--log-file <path>` to write debug logs (including response decode errors).
+```sh
+nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- --log-file /tmp/anirust.log tui"
+```
+
 Other commands
 ```sh
 nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- settings"
