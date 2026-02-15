@@ -30,24 +30,6 @@ cargo install --path anirust
 ```
 The binary is at `~/.cargo/bin/anirust`.
 
-Run (recommended)
-```sh
-nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- tui"
-```
-
-Logging
-- Use `--log-file <path>` to write debug logs (including response decode errors).
-```sh
-nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- --log-file /tmp/anirust.log tui"
-```
-
-Other commands
-```sh
-nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- settings"
-nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- providers"
-nix-shell -p gcc pkg-config openssl --command "cargo run -p anirust -- search \"naruto\""
-```
-
 NixOS (flakes)
 Add the input:
 ```nix
@@ -80,7 +62,7 @@ Config
 - Stored at `~/.config/anirust/config.toml` (XDG).
 - Defaults are created automatically on first run.
 
-Tests
+Tests (rust only installed, so use nix-shell to add deps to path)
 ```sh
 nix-shell -p gcc pkg-config openssl --command "cargo test -p anirust"
 ```
