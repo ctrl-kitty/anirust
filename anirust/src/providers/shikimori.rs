@@ -8,7 +8,7 @@ use crate::providers::utils::{
 use crate::providers::MetadataProvider;
 use crate::registry::MetadataProviderFactory;
 
-const SHIKIMORI_GRAPHQL_URL: &str = "https://shiki.one/api/graphql";
+const SHIKIMORI_GRAPHQL_URL: &str = "https://shikimori.io/api/graphql";
 const DEFAULT_LIMIT: i32 = 20;
 const SEARCH_QUERY: &str = r#"
 query SearchAnime($search: String!, $limit: Int!) {
