@@ -1,0 +1,5 @@
+# Copy to oauth.properties (ignored by Git), or supply these environment variables in CI.
+# These values are bundled in the APK; they are not confidential after distribution.
+SHIKIMORI_CLIENT_ID=683qMX6Xae_qJNo41rBB-mvjlsN5xaCR5VhK1XFOGJg
+SHIKIMORI_CLIENT_SECRET=
+SHIKIMORI_APP_NAME=AniRust
