@@ -13,6 +13,7 @@ pub struct Settings {
     pub audio: AudioSettings,
     pub player: PlayerSettings,
     pub anime: AnimeSettings,
+    pub latest_searches: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,7 @@ impl Default for Settings {
             audio: AudioSettings::default(),
             player: PlayerSettings::default(),
             anime: AnimeSettings::default(),
+            latest_searches: Vec::new(),
         }
     }
 }

@@ -48,3 +48,12 @@ fn input_state_clear_resets_value_and_cursor() {
     assert!(input.is_empty());
     assert_eq!(input.cursor(), 0);
 }
+
+#[test]
+fn input_state_set_value_updates_value_and_cursor() {
+    let mut input = InputState::new();
+    input.insert_char('x');
+    input.set_value("hello".to_string());
+    assert_eq!(input.value(), "hello");
+    assert_eq!(input.cursor(), 5);
+}

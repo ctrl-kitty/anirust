@@ -108,19 +108,22 @@ impl App {
 
     pub(crate) fn list_items(&self) -> Vec<ListItem<'static>> {
         match self.view {
-            View::Search => self
-                .results
-                .iter()
-                .map(|anime| {
-                    ListItem::new(format!(
+            View::Search => {
+                let mut items = Vec::new();
+                for query in &self.settings.latest_searches {
+                    items.push(ListItem::new(format!("🔍 History: {}", query)));
+                }
+                for anime in &self.results {
+                    items.push(ListItem::new(format!(
                         "{} (yummy: {}, shiki: {}, mal: {})",
                         anime.title,
                         format_id(anime.id.yummy_id),
                         format_id(anime.id.shikimori_id),
                         format_id(anime.id.mal_id)
-                    ))
-                })
-                .collect(),
+                    )));
+                }
+                items
+            }
             View::Series => self
                 .series
                 .iter()

@@ -26,7 +26,9 @@ impl<'a> CatalogService<'a> {
         let mut merged = unify::unify_search(query, result, self.metadata).await;
         if matches!(merged.status, ProviderStatus::Ok | ProviderStatus::Partial) {
             if let Some(mut data) = merged.data.take() {
-                sort_search_results(query, &mut data);
+                if !query.trim().is_empty() {
+                    sort_search_results(query, &mut data);
+                }
                 merged.data = Some(data);
             }
         }

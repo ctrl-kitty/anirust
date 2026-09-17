@@ -27,10 +27,6 @@ impl YummyProvider {
     }
 
     async fn search_anime(&self, query: &str) -> ProviderResult<Vec<Anime>> {
-        if query.trim().is_empty() {
-            return ProviderResult::not_found();
-        }
-
         let config = match load_yummy_config() {
             Ok(config) => config,
             Err(ConfigError::LoadFailed(error)) => return ProviderResult::error(error),
@@ -38,8 +34,12 @@ impl YummyProvider {
 
         let request = self
             .client
-            .get(format!("{}/anime", YUMMY_BASE_URL))
-            .query(&[("q", query)]);
+            .get(format!("{}/anime", YUMMY_BASE_URL));
+        let request = if query.trim().is_empty() {
+            request
+        } else {
+            request.query(&[("q", query)])
+        };
         let request = apply_headers(request, &config);
 
         let payload = match self.send_request::<Vec<YummyAnime>>(request).await {

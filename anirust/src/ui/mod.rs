@@ -57,6 +57,11 @@ pub async fn run() -> Result<()> {
 }
 
 async fn run_app<B: Backend + io::Write>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+    app.set_status("Loading new series...");
+    terminal.draw(|frame| render::draw_ui(frame, app))?;
+
+    handlers_flow::pull_new_series(app).await;
+
     loop {
         terminal.draw(|frame| render::draw_ui(frame, app))?;
 

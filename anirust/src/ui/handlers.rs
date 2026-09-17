@@ -32,7 +32,8 @@ async fn handle_search_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match app.focus {
         Focus::Input => match key.code {
             KeyCode::Tab => {
-                if !app.results.is_empty() {
+                let total_len = app.results.len() + app.settings.latest_searches.len();
+                if total_len > 0 {
                     app.focus = Focus::List;
                 }
             }
@@ -53,20 +54,32 @@ async fn handle_search_key(app: &mut App, key: KeyEvent) -> Result<()> {
             }
             _ => {}
         },
-        Focus::List => match key.code {
-            KeyCode::Tab | KeyCode::BackTab => {
-                app.focus = Focus::Input;
+        Focus::List => {
+            let total_len = app.results.len() + app.settings.latest_searches.len();
+            match key.code {
+                KeyCode::Tab | KeyCode::BackTab => {
+                    app.focus = Focus::Input;
+                }
+                KeyCode::Up => select_prev(&mut app.results_state, total_len),
+                KeyCode::Down => select_next(&mut app.results_state, total_len),
+                KeyCode::Enter => {
+                    if let Some(selected_index) = app.results_state.selected() {
+                        let history_len = app.settings.latest_searches.len();
+                        if selected_index < history_len {
+                            let query = app.settings.latest_searches[selected_index].clone();
+                            app.search_input.set_value(query);
+                            perform_search(app).await;
+                        } else {
+                            open_series(app).await;
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    app.focus = Focus::Input;
+                }
+                _ => {}
             }
-            KeyCode::Up => select_prev(&mut app.results_state, app.results.len()),
-            KeyCode::Down => select_next(&mut app.results_state, app.results.len()),
-            KeyCode::Enter => {
-                open_series(app).await;
-            }
-            KeyCode::Backspace => {
-                app.focus = Focus::Input;
-            }
-            _ => {}
-        },
+        }
         Focus::Filter => {
             app.focus = Focus::Input;
         }

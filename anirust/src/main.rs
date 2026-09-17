@@ -38,6 +38,9 @@ enum Command {
         #[arg(long)]
         provider: Option<String>,
     },
+    Resolve {
+        url: String,
+    },
 }
 
 #[tokio::main]
@@ -59,6 +62,7 @@ async fn main() -> Result<()> {
         Some(Command::Search { query, provider }) => run_search(query, provider).await?,
         Some(Command::Series { anime_id, provider }) => run_series(anime_id, provider).await?,
         Some(Command::Episodes { anime_id, provider }) => run_episodes(anime_id, provider).await?,
+        Some(Command::Resolve { url }) => run_resolve(url).await?,
         Some(Command::Tui) | None => ui::run().await?,
     }
 
@@ -332,4 +336,18 @@ fn print_provider_error(id: &ProviderId, status: ProviderStatus, error: Option<P
         .map(|error| error.message)
         .unwrap_or_else(|| "unknown error".to_string());
     println!("[{}] {:?}: {}", id, status, message);
+}
+
+async fn run_resolve(url: String) -> Result<()> {
+    let resolved = anirust::player::resolve_playback(&url).await?;
+    let headers: std::collections::HashMap<String, String> = resolved
+        .headers
+        .into_iter()
+        .collect();
+    let json = serde_json::json!({
+        "url": resolved.url,
+        "headers": headers,
+    });
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
 }

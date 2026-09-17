@@ -35,6 +35,7 @@ pub(crate) async fn perform_search(app: &mut App) {
 
     match status {
         ProviderStatus::Ok | ProviderStatus::Partial => {
+            let _ = app.add_search_query(query);
             app.update_results(data);
             app.focus = Focus::List;
             app.view = View::Search;
@@ -51,6 +52,7 @@ pub(crate) async fn perform_search(app: &mut App) {
             }
         }
         ProviderStatus::NotFound => {
+            let _ = app.add_search_query(query);
             app.update_results(Vec::new());
             app.focus = Focus::Input;
             app.set_status("No results found");
@@ -244,4 +246,46 @@ pub(crate) fn select_series_index(
     let yummy_id = anime_id.yummy_id?;
     let target = yummy_id.to_string();
     series.iter().position(|entry| entry.id == target)
+}
+
+pub(crate) async fn pull_new_series(app: &mut App) {
+    let provider = match app.provider() {
+        Some(provider) => provider,
+        None => {
+            app.set_status("No provider configured to pull updates");
+            return;
+        }
+    };
+    let metadata = if app.provider_id.0 == "yummy" {
+        app.registry
+            .get_metadata(&crate::domain::ProviderId::from("shikimori"))
+    } else {
+        None
+    };
+    let catalog = CatalogService::new(provider, metadata);
+    let result = catalog.search("").await;
+
+    let status = result.status;
+    let data = result.data.unwrap_or_default();
+    let error = result.error;
+
+    match status {
+        ProviderStatus::Ok | ProviderStatus::Partial => {
+            app.update_results(data);
+            if status == ProviderStatus::Partial {
+                app.set_status(format!(
+                    "Latest updates: {} (partial: {})",
+                    app.results.len(),
+                    error
+                        .map(|err| err.message)
+                        .unwrap_or_else(|| "unknown error".to_string())
+                ));
+            } else {
+                app.set_status("Loaded latest updates");
+            }
+        }
+        _ => {
+            app.set_status("Failed to load latest updates");
+        }
+    }
 }

@@ -27,6 +27,11 @@ impl InputState {
         self.cursor = 0;
     }
 
+    pub(crate) fn set_value(&mut self, value: String) {
+        self.value = value;
+        self.cursor = input_len(&self.value);
+    }
+
     pub(crate) fn insert_char(&mut self, ch: char) {
         insert_char(&mut self.value, &mut self.cursor, ch);
     }

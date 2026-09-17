@@ -162,6 +162,18 @@ impl App {
         self.settings.save()
     }
 
+    pub(crate) fn add_search_query(&mut self, query: String) -> Result<()> {
+        let query = query.trim().to_string();
+        if query.is_empty() {
+            return Ok(());
+        }
+
+        self.settings.latest_searches.retain(|q| q != &query);
+        self.settings.latest_searches.insert(0, query);
+        self.settings.latest_searches.truncate(10);
+        self.settings.save()
+    }
+
     pub(crate) fn last_watched_label(&self) -> Option<String> {
         let key = self.anime_key()?;
         let history = self.settings.anime.history.get(&key)?;
@@ -203,7 +215,8 @@ impl App {
 
     pub(crate) fn update_results(&mut self, results: Vec<Anime>) {
         self.results = results;
-        self.results_state.select(select_first(self.results.len()));
+        let total_len = self.results.len() + self.settings.latest_searches.len();
+        self.results_state.select(select_first(total_len));
     }
 
     pub(crate) fn update_series(&mut self, series: Vec<SeriesEntry>) {
@@ -296,7 +309,14 @@ impl App {
     pub(crate) fn selected_result(&self) -> Option<&Anime> {
         self.results_state
             .selected()
-            .and_then(|index| self.results.get(index))
+            .and_then(|index| {
+                let history_len = self.settings.latest_searches.len();
+                if index >= history_len {
+                    self.results.get(index - history_len)
+                } else {
+                    None
+                }
+            })
     }
 
     pub(crate) fn selected_series(&self) -> Option<&SeriesEntry> {
