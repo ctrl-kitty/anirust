@@ -31,11 +31,13 @@ fun HomeScreen(
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(error) {
         error?.let {
-            snackbar.showSnackbar(it)
+            val result =
+                snackbar.showSnackbar(it, actionLabel = "Повторить", withDismissAction = true)
             viewModel.clearError()
+            if (result == SnackbarResult.ActionPerformed) viewModel.retryExternalPlayback(context)
         }
     }
-    Scaffold(modifier.fillMaxSize(), snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(modifier.fillMaxSize(), snackbarHost = { AppSnackbarHost(snackbar) }) { padding ->
         if (state.isLoading) LoadingView(modifier = Modifier.padding(padding).fillMaxSize())
         else
             LazyColumn(
@@ -59,16 +61,33 @@ fun HomeScreen(
                         LastWatchCard(
                             last,
                             onResume = {
-                                if (preferExternal) viewModel.openInExternalPlayer(context, last)
+                                val next = state.nextEpisodeNumber
+                                if (last.isCompleted && next == null)
+                                    onNavigateToDetails(last.animeId)
+                                else if (preferExternal)
+                                    viewModel.openInExternalPlayer(
+                                        context,
+                                        if (last.isCompleted && next != null)
+                                            last.copy(
+                                                episodeNumber = next,
+                                                episodeId = "${last.animeId}_$next",
+                                                playbackPositionMs = 0,
+                                                durationMs = 0,
+                                                completionOverride = null,
+                                            )
+                                        else last,
+                                    )
                                 else
                                     onNavigateToPlayer(
                                         last.animeId,
-                                        last.episodeNumber,
+                                        if (last.isCompleted) next ?: last.episodeNumber
+                                        else last.episodeNumber,
                                         last.dubbing,
                                     )
                             },
                             onOpenExternal = { viewModel.openInExternalPlayer(context, last) },
                             onClickAnime = { onNavigateToDetails(last.animeId) },
+                            nextEpisodeNumber = state.nextEpisodeNumber,
                         )
                     else
                         Card(

@@ -1,10 +1,7 @@
 package com.anirust.app.ui.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,12 +13,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anirust.app.BuildConfig
-import com.anirust.app.data.repository.SettingsRepository
 import com.anirust.app.ui.components.*
 import kotlinx.coroutines.launch
 
@@ -31,15 +28,16 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     modifier: Modifier = Modifier,
     onOpenAccount: (() -> Unit)? = null,
+    onShowOnboarding: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var clearTarget by rememberSaveable { mutableStateOf<String?>(null) }
-    Scaffold(modifier.fillMaxSize(), snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(modifier.fillMaxSize(), snackbarHost = { AppSnackbarHost(snackbar) }) { padding ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
+            Modifier.fillMaxSize().padding(padding).testTag("settings_list"),
             contentPadding = PaddingValues(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -94,7 +92,15 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        listOf("AniLibria", "Dream Cast", "StudioBand", "2x2", "AniDUB", "Субтитры")
+                        listOf(
+                                "ТО Дубляжная",
+                                "AniLibria",
+                                "Dream Cast",
+                                "StudioBand",
+                                "2x2",
+                                "AniDUB",
+                                "Субтитры",
+                            )
                             .forEach { name ->
                                 FilterTabChip(
                                     name,
@@ -110,75 +116,78 @@ fun SettingsScreen(
             }
             item {
                 SettingsGroup("Просмотр") {
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .toggleable(
-                                state.useExternalPlayer,
-                                role = Role.Switch,
-                                onValueChange = viewModel::setUseExternalPlayer,
-                            )
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Column(
-                            Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                "Открывать во внешнем плеере",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                if (state.useExternalPlayer)
-                                    "Видео откроется в выбранном приложении"
-                                else "Сейчас используется встроенный плеер",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(state.useExternalPlayer, onCheckedChange = null)
-                    }
-                    AnimatedVisibility(state.useExternalPlayer) {
-                        Column(Modifier.selectableGroup()) {
-                            HorizontalDivider()
-                            listOf(
-                                    SettingsRepository.PACKAGE_MPV to "MPV Android",
-                                    SettingsRepository.PACKAGE_MPVEX to "mpvEx",
-                                    SettingsRepository.PACKAGE_VLC to "VLC for Android",
-                                    SettingsRepository.PACKAGE_CHOOSER to "Спрашивать каждый раз",
-                                )
-                                .forEach { (pkg, label) ->
-                                    Row(
-                                        Modifier.fillMaxWidth()
-                                            .heightIn(min = 56.dp)
-                                            .selectable(
-                                                state.externalPlayerPackage == pkg,
-                                                role = Role.RadioButton,
-                                                onClick = {
-                                                    viewModel.setExternalPlayerPackage(pkg)
-                                                },
-                                            ),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        RadioButton(
-                                            state.externalPlayerPackage == pkg,
-                                            onClick = null,
-                                        )
-                                        Text(label, style = MaterialTheme.typography.bodyLarge)
-                                    }
-                                }
-                        }
-                    }
+                    PlayerChoices(
+                        state.useExternalPlayer,
+                        state.externalPlayerPackage,
+                        onSelect = { pkg ->
+                            if (pkg != null) viewModel.setExternalPlayerPackage(pkg)
+                            viewModel.setUseExternalPlayer(pkg != null)
+                        },
+                        onError = { message -> scope.launch { snackbar.showSnackbar(message) } },
+                    )
                     Text(
-                        "Встроенный плеер сохраняет позицию и поддерживает заголовки потоков. " +
-                            "Внешние приложения управляют прогрессом самостоятельно.",
+                        "mpvEx сохраняет позицию после возврата. Остальные внешние плееры могут не передавать прогресс.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+            item {
+                SettingsGroup("Синхронизация Shikimori") {
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .toggleable(
+                                state.syncWatchedProgress,
+                                role = Role.Switch,
+                                onValueChange = viewModel::setSyncWatchedProgress,
+                            )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Отправлять просмотренные серии",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "Обновлять счётчик в моих списках Shikimori после просмотра. Пропущенные серии не отмечаем.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Switch(state.syncWatchedProgress, onCheckedChange = null)
+                    }
+                    Text(
+                        "При старте и каждые ${state.syncIntervalMinutes} мин",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Списки обновляются, пока приложение открыто. Статусы и оценки отправляются сразу. Обновить вручную можно в списках.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        listOf(5, 15, 30, 60, 120).forEach { minutes ->
+                            FilterTabChip(
+                                "$minutes мин",
+                                state.syncIntervalMinutes == minutes,
+                                { viewModel.setSyncIntervalMinutes(minutes) },
+                            )
+                        }
+                    }
+                }
+            }
+            if (onShowOnboarding != null)
+                item {
+                    OutlinedCard(onClick = onShowOnboarding, modifier = Modifier.fillMaxWidth()) {
+                        ListItem(
+                            headlineContent = { Text("Как работает AniRust") },
+                            supportingContent = { Text("Возможности, плееры и аккаунт Shikimori") },
+                            leadingContent = { Icon(Icons.Outlined.AutoAwesome, null) },
+                        )
+                    }
+                }
             item {
                 SettingsGroup("На этом устройстве") {
                     Text(

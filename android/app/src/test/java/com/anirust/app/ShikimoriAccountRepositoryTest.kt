@@ -204,7 +204,7 @@ class ShikimoriAccountRepositoryTest {
         assertTrue(repo.saveRate(Anime(-20, title = "Наруто", shikimoriId = 20), "on_hold", 7, 3))
         assertEquals(mapOf("status" to "on_hold"), api.requestedFields)
         assertEquals(9, repo.state.value.rates.single().score)
-        assertTrue(messages.events.first().contains("Отложено"))
+        assertTrue(messages.events.first().text.contains("Отложено"))
     }
 
     @Test
@@ -215,7 +215,7 @@ class ShikimoriAccountRepositoryTest {
         val repo = repository(api, store, messages)
         assertFalse(repo.saveRate(Anime(-20, title = "Наруто"), "dropped", 7, 3))
         assertEquals("watching", repo.state.value.rates.single().status)
-        assertTrue(messages.events.first().contains("не синхронизирован"))
+        assertTrue(messages.events.first().text.contains("не синхронизирован"))
     }
 
     @Test
@@ -286,7 +286,7 @@ class ShikimoriAccountRepositoryTest {
         val messages = UiMessages()
         val repo = repository(api, MemoryShikimoriStore(), messages)
         assertFalse(repo.signIn(ShikimoriOAuthConfig("client", "secret", "AniRust"), "code"))
-        assertFalse(messages.events.first().contains("sensitive-test-payload"))
+        assertFalse(messages.events.first().text.contains("sensitive-test-payload"))
         assertNull(repo.state.value.user)
     }
 
@@ -313,7 +313,7 @@ class ShikimoriAccountRepositoryTest {
         assertEquals("7", api.requestedFields["user_id"])
         assertEquals("Anime", api.requestedFields["target_type"])
         assertEquals("planned", repo.state.value.rates.single().status)
-        assertTrue(messages.events.first().contains("Наруто"))
+        assertTrue(messages.events.first().text.contains("Наруто"))
     }
 
     @Test

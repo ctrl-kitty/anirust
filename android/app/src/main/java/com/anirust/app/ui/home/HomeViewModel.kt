@@ -8,6 +8,7 @@ import com.anirust.app.data.repository.SettingsRepository
 import com.anirust.app.domain.model.FavoriteItem
 import com.anirust.app.domain.model.WatchHistoryItem
 import com.anirust.app.domain.usecase.FavoritesUseCase
+import com.anirust.app.domain.usecase.GetEpisodesUseCase
 import com.anirust.app.domain.usecase.ResolveStreamUseCase
 import com.anirust.app.domain.usecase.WatchHistoryUseCase
 import com.anirust.app.ui.player.ExternalPlayerHelper
@@ -26,6 +27,7 @@ data class HomeUiState(
     val favorites: List<FavoriteItem> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
+    val nextEpisodeNumber: Int? = null,
 )
 
 class HomeViewModel(
@@ -33,9 +35,15 @@ class HomeViewModel(
     private val favoritesUseCase: FavoritesUseCase,
     private val resolveStreamUseCase: ResolveStreamUseCase,
     private val settingsRepository: SettingsRepository,
+    private val getEpisodesUseCase: GetEpisodesUseCase? = null,
 ) : ViewModel() {
 
     private var externalJob: Job? = null
+    private var lastExternalItem: WatchHistoryItem? = null
+
+    fun retryExternalPlayback(context: Context) {
+        lastExternalItem?.let { openInExternalPlayer(context, it) }
+    }
 
     fun cancelExternalPlayback() {
         externalJob?.cancel()
@@ -56,11 +64,26 @@ class HomeViewModel(
                 watchHistoryUseCase.getAllHistory(),
                 favoritesUseCase.getAllFavorites(),
             ) { lastWatched, allHistory, favorites ->
+                val next =
+                    if (lastWatched?.isCompleted == true)
+                        getEpisodesUseCase
+                            ?.invoke(lastWatched.animeId)
+                            ?.getOrNull()
+                            ?.filter {
+                                it.number > lastWatched.episodeNumber &&
+                                    it.voiceVariants.any { voice ->
+                                        voice.label == lastWatched.dubbing
+                                    }
+                            }
+                            ?.minByOrNull { it.number }
+                            ?.number
+                    else null
                 HomeUiState(
                     lastWatched = lastWatched,
                     recentHistory = allHistory.take(10),
                     favorites = favorites.take(10),
                     isLoading = false,
+                    nextEpisodeNumber = next,
                 )
             }
             .stateIn(
@@ -70,6 +93,7 @@ class HomeViewModel(
             )
 
     fun openInExternalPlayer(context: Context, item: WatchHistoryItem) {
+        lastExternalItem = item
         if (_isResolvingStream.value) return
         externalJob =
             viewModelScope.launch {
@@ -95,6 +119,8 @@ class HomeViewModel(
                                 title = "${item.animeTitle} - Серия ${item.episodeNumber}",
                                 targetPackage = targetPkg,
                                 positionMs = item.resumePositionMs,
+                                historyId = item.historyId,
+                                onError = { _streamResolveError.value = it },
                             )
                         if (launched)
                             watchHistoryUseCase.recordWatch(
@@ -121,6 +147,7 @@ class HomeViewModel(
         private val favoritesUseCase: FavoritesUseCase,
         private val resolveStreamUseCase: ResolveStreamUseCase,
         private val settingsRepository: SettingsRepository,
+        private val getEpisodesUseCase: GetEpisodesUseCase? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -129,6 +156,7 @@ class HomeViewModel(
                 favoritesUseCase,
                 resolveStreamUseCase,
                 settingsRepository,
+                getEpisodesUseCase,
             )
                 as T
         }

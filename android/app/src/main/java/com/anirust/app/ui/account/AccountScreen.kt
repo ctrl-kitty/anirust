@@ -1,7 +1,6 @@
 package com.anirust.app.ui.account
 
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,19 +11,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.anirust.app.ui.components.AppSnackbarHost
 import com.anirust.app.ui.components.LoadingView
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountScreen(viewModel: ShikimoriViewModel, onBack: () -> Unit, onOpenLists: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     // The one-time authorization code must not enter a saved-instance-state Bundle.
     var code by remember { mutableStateOf("") }
     var logout by rememberSaveable { mutableStateOf(false) }
@@ -32,7 +37,9 @@ fun AccountScreen(viewModel: ShikimoriViewModel, onBack: () -> Unit, onOpenLists
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
         } catch (_: Exception) {
-            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_LONG).show()
+            scope.launch {
+                snackbar.showSnackbar("Не удалось открыть браузер", withDismissAction = true)
+            }
         }
     }
     LaunchedEffect(state.user?.id, state.needsLogin) {
@@ -41,6 +48,7 @@ fun AccountScreen(viewModel: ShikimoriViewModel, onBack: () -> Unit, onOpenLists
         }
     }
     Scaffold(
+        snackbarHost = { AppSnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("Аккаунт Shikimori") },
@@ -48,7 +56,7 @@ fun AccountScreen(viewModel: ShikimoriViewModel, onBack: () -> Unit, onOpenLists
                     IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
                 },
             )
-        }
+        },
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
@@ -145,6 +153,14 @@ fun AccountScreen(viewModel: ShikimoriViewModel, onBack: () -> Unit, onOpenLists
                         { code = it },
                         Modifier.fillMaxWidth(),
                         label = { Text("2. Код авторизации из браузера") },
+                        trailingIcon = {
+                            TextButton(
+                                onClick = { code = clipboard.getText()?.text?.trim().orEmpty() },
+                                enabled = !state.busy,
+                            ) {
+                                Text("Вставить код")
+                            }
+                        },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

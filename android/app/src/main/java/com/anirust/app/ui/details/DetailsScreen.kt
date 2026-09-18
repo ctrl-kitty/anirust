@@ -53,13 +53,35 @@ fun DetailsScreen(
         }
     val remoteWatchedCount = remoteRate?.episodes?.coerceAtLeast(0) ?: 0
     var showWatched by rememberSaveable(state.anime?.id) { mutableStateOf(false) }
-    val unwatchedEpisodes =
-        remember(state.filteredEpisodes, state.watchedEpisodeNumbers, remoteWatchedCount) {
-            state.filteredEpisodes.filterNot {
-                it.number <= remoteWatchedCount || it.number in state.watchedEpisodeNumbers
-            }
+    val locallyUnwatched =
+        state.history
+            .filter { it.completionOverride == false && !it.isCompleted }
+            .map { it.episodeNumber }
+            .toSet()
+    fun isWatched(number: Int) =
+        number in state.watchedEpisodeNumbers ||
+            (number <= remoteWatchedCount && number !in locallyUnwatched)
+    val unwatchedEpisodes = state.filteredEpisodes.filterNot { isWatched(it.number) }
+    val resume =
+        state.history.firstOrNull { item ->
+            !item.isCompleted &&
+                item.playbackPositionMs > 0 &&
+                (state.selectedDubbing == null || item.dubbing == state.selectedDubbing) &&
+                unwatchedEpisodes.any { it.number == item.episodeNumber }
         }
+    val primaryEpisode =
+        unwatchedEpisodes.firstOrNull { it.number == resume?.episodeNumber }
+            ?: state.history
+                .firstOrNull { it.isCompleted }
+                ?.let { last ->
+                    unwatchedEpisodes
+                        .filter { it.number > last.episodeNumber }
+                        .minByOrNull { it.number }
+                }
+            ?: unwatchedEpisodes.minByOrNull { it.number }
+    val primaryVoice = state.selectedDubbing ?: resume?.dubbing
     val visibleEpisodes = if (showWatched) state.filteredEpisodes else unwatchedEpisodes
+    val watchedCount = state.filteredEpisodes.size - unwatchedEpisodes.size
     val preferExternal by viewModel.preferExternalPlayer.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -71,8 +93,10 @@ fun DetailsScreen(
     }
     LaunchedEffect(state.externalError) {
         state.externalError?.let {
-            snackbar.showSnackbar(it)
+            val result =
+                snackbar.showSnackbar(it, actionLabel = "Повторить", withDismissAction = true)
             viewModel.clearExternalError()
+            if (result == SnackbarResult.ActionPerformed) viewModel.retryExternalPlayback(context)
         }
     }
     val play: (Episode) -> Unit = { episode ->
@@ -82,7 +106,51 @@ fun DetailsScreen(
     }
     Scaffold(
         modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
+        bottomBar = {
+            if (!state.isLoading && primaryEpisode != null)
+                Surface(tonalElevation = 3.dp) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Button(
+                            onClick = {
+                                if (primaryVoice == null) play(primaryEpisode)
+                                else if (preferExternal)
+                                    viewModel.openEpisodeInExternal(
+                                        context,
+                                        primaryEpisode,
+                                        primaryVoice,
+                                    )
+                                else
+                                    state.anime?.let {
+                                        onNavigateToPlayer(
+                                            it.id,
+                                            primaryEpisode.number,
+                                            primaryVoice,
+                                        )
+                                    }
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        ) {
+                            Icon(Icons.Outlined.PlayArrow, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (resume != null)
+                                    "Продолжить · серия ${primaryEpisode.number} · ${resume.playbackPositionMs / 60000}:${((resume.playbackPositionMs / 1000) % 60).toString().padStart(2, '0')}"
+                                else "Смотреть серию ${primaryEpisode.number}"
+                            )
+                        }
+                        Text(
+                            primaryVoice ?: "Выбери озвучку перед просмотром",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -265,23 +333,27 @@ fun DetailsScreen(
                                     )
                                 }
                             }
-                            if (state.filteredEpisodes.isNotEmpty())
+                            if (watchedCount > 0)
                                 item {
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        item {
-                                            FilterTabChip(
-                                                "Новые · ${unwatchedEpisodes.size}",
-                                                !showWatched,
-                                                { showWatched = false },
-                                            )
-                                        }
-                                        item {
-                                            FilterTabChip(
-                                                "Все · ${state.filteredEpisodes.size}",
-                                                showWatched,
-                                                { showWatched = true },
-                                            )
-                                        }
+                                    OutlinedButton(onClick = { showWatched = !showWatched }) {
+                                        Icon(
+                                            if (showWatched) Icons.Outlined.ExpandLess
+                                            else Icons.Outlined.ExpandMore,
+                                            null,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            if (showWatched) "Скрыть просмотренные · $watchedCount"
+                                            else "Показать просмотренные · $watchedCount"
+                                        )
+                                    }
+                                }
+                            if (state.completionThreshold != 95)
+                                item {
+                                    TextButton(onClick = viewModel::resetCompletionThreshold) {
+                                        Text(
+                                            "Просмотрено с ${state.completionThreshold}% · сбросить правило"
+                                        )
                                     }
                                 }
                             if (state.filteredEpisodes.isEmpty())
@@ -304,18 +376,13 @@ fun DetailsScreen(
                                             "Все доступные серии в выбранной озвучке уже просмотрены."
                                         else "Все доступные серии уже просмотрены.",
                                         icon = Icons.Outlined.TaskAlt,
-                                    ) {
-                                        FilledTonalButton(onClick = { showWatched = true }) {
-                                            Text("Показать просмотренные")
-                                        }
-                                    }
+                                    )
                                 }
                             else
                                 items(visibleEpisodes, key = { it.id }) { episode ->
                                     EpisodeItem(
                                         episode,
-                                        state.watchedEpisodeNumbers.contains(episode.number) ||
-                                            episode.number <= remoteWatchedCount,
+                                        isWatched(episode.number),
                                         state.selectedDubbing,
                                         onPlay = { play(episode) },
                                         onPlayExternal = {
@@ -324,6 +391,21 @@ fun DetailsScreen(
                                             else openPicker(episode, true)
                                         },
                                         onSelectDubbing = { openPicker(episode, preferExternal) },
+                                        modifier = Modifier.animateItem(),
+                                        progress =
+                                            state.history
+                                                .firstOrNull {
+                                                    it.episodeNumber == episode.number &&
+                                                        (state.selectedDubbing == null ||
+                                                            it.dubbing == state.selectedDubbing)
+                                                }
+                                                ?.progressFraction ?: 0f,
+                                        onMarkWatched = {
+                                            viewModel.markEpisode(
+                                                episode,
+                                                !isWatched(episode.number),
+                                            )
+                                        },
                                     )
                                 }
                         }

@@ -31,6 +31,8 @@ data class DetailsUiState(
     val episodes: List<Episode> = emptyList(),
     val filteredEpisodes: List<Episode> = emptyList(),
     val watchedEpisodeNumbers: Set<Int> = emptySet(),
+    val history: List<WatchHistoryItem> = emptyList(),
+    val completionThreshold: Int = 95,
     val selectedSeriesId: String? = null,
     val selectedDubbing: String? = null,
     val availableDubbings: List<String> = emptyList(),
@@ -63,6 +65,12 @@ class DetailsViewModel(
     private var favoriteJob: Job? = null
     private var historyJob: Job? = null
     private var externalJob: Job? = null
+    private var lastExternalRequest: Pair<Episode, String?>? = null
+
+    fun retryExternalPlayback(context: Context) {
+        lastExternalRequest?.let { openEpisodeInExternal(context, it.first, it.second) }
+    }
+
     val preferExternalPlayer = settingsRepository.useExternalPlayer
 
     init {
@@ -90,6 +98,9 @@ class DetailsViewModel(
                     _uiState.update {
                         it.copy(
                             watchedEpisodeNumbers = watchedNums,
+                            history = history,
+                            completionThreshold =
+                                settingsRepository.completionThresholds.value[anime.id] ?: 95,
                             selectedDubbing = choice.first,
                             preferredDubbingName = choice.second.orEmpty(),
                             preferredDubbingNotFound = choice.second != null,
@@ -129,6 +140,7 @@ class DetailsViewModel(
                 }
 
                 val anime = animeResult.getOrThrow()
+                settingsRepository.registerAnime(anime)
                 val series = seriesResult.getOrDefault(emptyList())
                 val episodes = episodesResult.getOrDefault(emptyList())
 
@@ -151,6 +163,9 @@ class DetailsViewModel(
                         preferredDubbingName = missingDubbing.orEmpty(),
                         watchedEpisodeNumbers =
                             history.filter { it.isCompleted }.map { it.episodeNumber }.toSet(),
+                        history = history,
+                        completionThreshold =
+                            settingsRepository.completionThresholds.value[anime.id] ?: 95,
                         filteredEpisodes = filterEpisodesByDubbing(episodes, initialDubbing),
                         isLoading = false,
                         error = episodesResult.exceptionOrNull()?.message,
@@ -164,6 +179,30 @@ class DetailsViewModel(
         val nextId = seriesId.toLongOrNull() ?: return
         if (nextId == currentActiveAnimeId) return
         loadData(nextId)
+    }
+
+    fun resetCompletionThreshold() {
+        settingsRepository.setCompletionThreshold(currentActiveAnimeId, null)
+    }
+
+    fun markEpisode(episode: Episode, watched: Boolean) {
+        val state = _uiState.value
+        val anime = state.anime ?: return
+        viewModelScope.launch {
+            val previous = state.history.firstOrNull { it.episodeNumber == episode.number }
+            watchHistoryUseCase.markEpisode(
+                previous
+                    ?: WatchHistoryItem(
+                        animeId = anime.id,
+                        animeTitle = anime.displayTitle,
+                        animePoster = anime.posterUrl,
+                        episodeId = episode.id,
+                        episodeNumber = episode.number,
+                        dubbing = state.selectedDubbing,
+                    ),
+                watched,
+            )
+        }
     }
 
     fun selectDubbing(dubbing: String?) {
@@ -236,6 +275,7 @@ class DetailsViewModel(
     }
 
     fun openEpisodeInExternal(context: Context, episode: Episode, specificDubbing: String? = null) {
+        lastExternalRequest = episode to specificDubbing
         if (_uiState.value.isResolvingExternal) return
         val targetId = currentActiveAnimeId
         val selectedAnime = _uiState.value.anime
@@ -267,6 +307,10 @@ class DetailsViewModel(
                                 title = "$animeTitle — Серия ${episode.number}",
                                 targetPackage = targetPkg,
                                 positionMs = previous?.resumePositionMs ?: 0L,
+                                historyId = "${targetId}_${episode.number}_${dubbing ?: "default"}",
+                                onError = { message ->
+                                    _uiState.update { it.copy(externalError = message) }
+                                },
                             )
                         if (!launched) return@onSuccess
 

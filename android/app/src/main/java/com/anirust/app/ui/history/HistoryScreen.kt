@@ -36,11 +36,13 @@ fun HistoryScreen(
     var pendingDelete by remember { mutableStateOf<WatchHistoryItem?>(null) }
     LaunchedEffect(error) {
         error?.let {
-            snackbar.showSnackbar(it)
+            val result =
+                snackbar.showSnackbar(it, actionLabel = "Повторить", withDismissAction = true)
             viewModel.clearError()
+            if (result == SnackbarResult.ActionPerformed) viewModel.retryExternalPlayback(context)
         }
     }
-    Scaffold(modifier.fillMaxSize(), snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(modifier.fillMaxSize(), snackbarHost = { AppSnackbarHost(snackbar) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(24.dp),

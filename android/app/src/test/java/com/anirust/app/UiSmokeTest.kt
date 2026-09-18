@@ -5,10 +5,16 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.inspector.WindowInspector
-import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -39,6 +45,7 @@ import com.anirust.app.domain.usecase.ResolveStreamUseCase
 import com.anirust.app.domain.usecase.SearchAnimeUseCase
 import com.anirust.app.domain.usecase.WatchHistoryUseCase
 import com.anirust.app.ui.account.*
+import com.anirust.app.ui.components.AppSnackbarHost
 import com.anirust.app.ui.details.DetailsScreen
 import com.anirust.app.ui.details.DetailsViewModel
 import com.anirust.app.ui.navigation.AnirustAppRoot
@@ -52,6 +59,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -63,7 +71,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
@@ -91,14 +98,22 @@ class UiSmokeTest {
         compose.onNodeWithText("Хороший день\nдля нового аниме").assertIsDisplayed()
         compose.onNodeWithText("Настройки", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Предпочитаемая озвучка").assertIsDisplayed()
-        compose.onNodeWithText("Открывать во внешнем плеере").performScrollTo().assertIsDisplayed()
-        compose.onNode(isToggleable()).performClick()
-        assertEquals(true, container.settingsRepository.useExternalPlayer.value)
-        compose.onNodeWithText("mpvEx").performScrollTo().performClick()
+        compose.onNodeWithTag("settings_list").performScrollToNode(hasText("Установить mpvEx"))
+        compose.onNodeWithText("Установить mpvEx").performScrollTo().assertIsDisplayed()
+        assertEquals(false, container.settingsRepository.useExternalPlayer.value)
         assertEquals(
             SettingsRepository.PACKAGE_MPVEX,
             container.settingsRepository.externalPlayerPackage.value,
         )
+        compose.onNodeWithText("Рекомендуем · сохраняет прогресс").assertIsDisplayed()
+        compose.onNodeWithTag("settings_list").performScrollToNode(hasText("ТО Дубляжная"))
+        compose.onNodeWithText("ТО Дубляжная").performScrollTo().performClick()
+        assertEquals("ТО Дубляжная", container.settingsRepository.preferredDubbing.value)
+        compose.onNodeWithTag("settings_list").performScrollToNode(hasText("30 мин"))
+        compose.onNodeWithText("30 мин").performScrollTo().assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(30, container.settingsRepository.syncIntervalMinutes.value)
+        }
         capture("settings")
         compose.onNodeWithText("Списки", useUnmergedTree = true).performClick()
         waitForText("В избранном пока пусто")
@@ -317,8 +332,12 @@ class UiSmokeTest {
         capture("landscape-settings")
     }
 
-    private fun detailsViewModel(preferredDubbing: String = ""): DetailsViewModel {
+    private fun detailsViewModel(
+        preferredDubbing: String = "",
+        initialHistory: List<WatchHistoryItem> = emptyList(),
+    ): DetailsViewModel {
         val container = testContainer(ApplicationProvider.getApplicationContext())
+        runBlocking { initialHistory.forEach { container.watchHistoryUseCase.recordWatch(it) } }
         container.settingsRepository.setPreferredDubbing(preferredDubbing)
         container.settingsRepository.setUseExternalPlayer(false)
         val yummy =
@@ -330,7 +349,7 @@ class UiSmokeTest {
                             title = "Наруто: Ураганные хроники",
                             otherTitles = listOf("Naruto: Shippuuden"),
                             rating = YummyRating(8.9),
-                            remoteIds = YummyRemoteIds(shikimoriId = 20),
+                            remoteIds = YummyRemoteIds(shikimoriId = if (it == 111L) 20 else it),
                             genres = listOf(YummyGenre("Приключения"), YummyGenre("Фэнтези")),
                             description =
                                 "Путь ниндзя продолжается. Наруто возвращается в родную деревню после долгих тренировок. " +
@@ -403,12 +422,19 @@ class UiSmokeTest {
             store.put("account", vm)
         }
         compose.setContent {
+            val snackbar = remember { SnackbarHostState() }
             LaunchedEffect(Unit) {
-                notices.events.collect {
-                    Toast.makeText(compose.activity, it, Toast.LENGTH_LONG).show()
+                notices.events.collectLatest {
+                    snackbar.showSnackbar(it.text, withDismissAction = true)
                 }
             }
-            AnirustTheme { ShikimoriListsScreen(vm, {}, {}, { opened = it }) }
+            AnirustTheme {
+                Scaffold(snackbarHost = { AppSnackbarHost(snackbar) }) { padding ->
+                    Box(Modifier.padding(padding)) {
+                        ShikimoriListsScreen(vm, {}, {}, { opened = it })
+                    }
+                }
+            }
         }
         waitForText("Наруто")
         capture("shikimori-lists")
@@ -420,7 +446,7 @@ class UiSmokeTest {
         compose.onNodeWithText("Сохранить").performClick()
         compose.waitUntil(5000) { repo.state.value.rates.single().status == "on_hold" }
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(ShadowToast.getTextOfLatestToast().contains("Отложено"))
+        compose.onNodeWithText("Shikimori: «Наруто» — Отложено").assertIsDisplayed()
         compose.onNodeWithText("Наруто").assertDoesNotExist()
         compose.onNodeWithText("Все · 1").performClick()
         compose.onNodeWithContentDescription("Изменить список: Наруто").performClick()
@@ -428,7 +454,7 @@ class UiSmokeTest {
         compose.onNodeWithText("Удалить", substring = false).performClick()
         compose.waitUntil(5000) { repo.state.value.rates.isEmpty() }
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(ShadowToast.getTextOfLatestToast().contains("удалено"))
+        compose.onNodeWithText("Shikimori: «Наруто» удалено из списка").assertIsDisplayed()
         appScope.cancel()
     }
 
@@ -489,7 +515,7 @@ class UiSmokeTest {
     }
 
     @Test
-    fun localListChangesShowToastAfterSaving() {
+    fun localListChangesShowSnackbarAfterSaving() {
         val container = testContainer(ApplicationProvider.getApplicationContext())
         compose.setContent { AnirustTheme { AnirustAppRoot(container) } }
         waitForText("Хороший день\nдля нового аниме")
@@ -500,13 +526,177 @@ class UiSmokeTest {
             )
         }
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(ShadowToast.getTextOfLatestToast().contains("добавлено"))
+        compose.onNodeWithText("«Наруто» добавлено: Смотрю").assertIsDisplayed()
+        capture("snackbar-saved")
         runBlocking { container.favoritesUseCase.updateStatus(111, FavoriteStatus.COMPLETED) }
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(ShadowToast.getTextOfLatestToast().contains("Просмотрено"))
+        compose.onNodeWithText("Локальный список изменён: Просмотрено").assertIsDisplayed()
         runBlocking { container.favoritesUseCase.removeFavorite(111) }
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(ShadowToast.getTextOfLatestToast().contains("удалено"))
+        compose.onNodeWithText("Аниме удалено из локального списка").assertIsDisplayed()
+        compose.onNodeWithText("Отменить").performClick()
+        waitForText("Закладка восстановлена")
+        assertEquals(
+            FavoriteStatus.COMPLETED,
+            runBlocking { container.favoritesUseCase.getFavorite(111).first()!!.status },
+        )
+    }
+
+    @Test
+    fun firstLaunchOnboardingCanBeSkippedAndReopenedFromSettings() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = testContainer(context, onboardingCompleted = false)
+        compose.setContent { AnirustTheme { AnirustAppRoot(container) } }
+        waitForText("Любимые истории\nвсегда рядом")
+        capture("onboarding-welcome")
+        compose.onNodeWithText("Пропустить").performClick()
+        waitForText("Хороший день\nдля нового аниме")
+        assertEquals(true, SettingsRepository(context).onboardingCompleted.value)
+        compose.onNodeWithText("Настройки", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("settings_list").performScrollToNode(hasText("Как работает AniRust"))
+        compose.onNodeWithText("Как работает AniRust").performClick()
+        waitForText("Любимые истории\nвсегда рядом")
+        compose.onNodeWithText("Дальше").performClick()
+        waitForText("Рекомендуем · сохраняет прогресс")
+        capture("onboarding-players")
+        compose.onNodeWithText("Дальше").performClick()
+        compose.onNodeWithText("Начать без аккаунта").performClick()
+        compose.onNodeWithTag("settings_list").performScrollToIndex(0)
+        waitForText("Пусть всё будет по-твоему")
+    }
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-xhdpi")
+    fun onboardingOnShortScreenOpensShikimoriAndBackReturnsHome() {
+        val local =
+            testContainer(ApplicationProvider.getApplicationContext(), onboardingCompleted = false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        accountScopes += scope
+        val repo =
+            ShikimoriAccountRepository(
+                FakeShikimoriAccountApi(),
+                MemoryShikimoriStore(),
+                local.messages,
+                scope,
+                Dispatchers.Main.immediate,
+                pause = {},
+            )
+        val container =
+            object : AppContainer by local {
+                override val shikimoriAccountRepository = repo
+            }
+        compose.setContent { AnirustTheme(darkTheme = true) { AnirustAppRoot(container) } }
+        waitForText("Любимые истории\nвсегда рядом")
+        compose.onNodeWithText("Дальше").performClick()
+        compose.onNodeWithText("Дальше").performClick()
+        compose.onNodeWithText("Войти в Shikimori").assertIsDisplayed()
+        capture("onboarding-shikimori-landscape")
+        compose.onNodeWithText("Войти в Shikimori").performClick()
+        waitForText("Подключи свои списки")
+        compose.onNodeWithContentDescription("Назад").performClick()
+        waitForText("Хороший день\nдля нового аниме")
+        assertEquals(true, local.settingsRepository.onboardingCompleted.value)
+    }
+
+    @Test
+    fun missingAndFailedCoversAreDistinctAndFailedCoversCanBeRetried() {
+        val cover = File(compose.activity.cacheDir, "retry-cover.png")
+        cover.delete()
+        val source = androidx.compose.runtime.mutableStateOf<String?>(null)
+        compose.setContent {
+            AnirustTheme {
+                com.anirust.app.ui.components.AnimePoster(
+                    source.value,
+                    Modifier.fillMaxSize(),
+                    "Тестовая обложка",
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Обложка отсутствует").assertIsDisplayed()
+        compose.onNodeWithTag("shimmer").assertDoesNotExist()
+        compose.runOnUiThread { source.value = cover.absolutePath }
+        compose.waitUntil(5000) {
+            compose
+                .onAllNodesWithContentDescription("Повторить загрузку обложки")
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        compose.onNodeWithTag("shimmer").assertDoesNotExist()
+        val bitmap = Bitmap.createBitmap(80, 116, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.rgb(98, 83, 154))
+        cover.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        compose.onNodeWithContentDescription("Повторить загрузку обложки").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("shimmer").fetchSemanticsNodes().isEmpty() &&
+                compose
+                    .onAllNodesWithContentDescription("Повторить загрузку обложки")
+                    .fetchSemanticsNodes()
+                    .isEmpty()
+        }
+        compose.runOnUiThread { source.value = null }
+        compose.onNodeWithContentDescription("Обложка отсутствует").assertIsDisplayed()
+        cover.delete()
+    }
+
+    @Test
+    fun completionQuestionRemembersPercentageForThisTitle() {
+        val container = testContainer(ApplicationProvider.getApplicationContext())
+        container.settingsRepository.registerAnime(Anime(111, shikimoriId = 20, title = "Наруто"))
+        val watched =
+            WatchHistoryItem(
+                animeId = 111,
+                animeTitle = "Наруто",
+                episodeId = "111_1",
+                episodeNumber = 1,
+                playbackPositionMs = 92_000,
+                durationMs = 100_000,
+            )
+        runBlocking { container.watchHistoryUseCase.recordWatch(watched) }
+        compose.setContent { AnirustTheme { AnirustAppRoot(container) } }
+        runBlocking { container.watchHistoryUseCase.finishPlayback(watched.historyId) }
+        waitForText("Серия уже просмотрена?")
+        capture("completion-confirmation")
+        compose.onNode(isToggleable()).performClick()
+        compose.onNodeWithText("Да, просмотрена").performClick()
+        compose.waitUntil(5000) { container.watchHistoryUseCase.completionPrompt.value == null }
+        assertEquals(92, container.settingsRepository.completionThresholds.value[-20L])
+        assertEquals(
+            true,
+            runBlocking {
+                container.watchHistoryUseCase.getAllHistory().first().single().isCompleted
+            },
+        )
+    }
+
+    @Test
+    fun primaryPlaybackResumesWithoutScrollingAndManualCompletionOffersNextEpisode() {
+        val history =
+            WatchHistoryItem(
+                animeId = 111,
+                animeTitle = "Наруто",
+                episodeId = "111_4",
+                episodeNumber = 4,
+                dubbing = "Studio A",
+                playbackPositionMs = 754_000,
+                durationMs = 1_440_000,
+            )
+        val vm = detailsViewModel("Studio A", listOf(history))
+        var played: Triple<Long, Int, String?>? = null
+        compose.setContent {
+            AnirustTheme {
+                DetailsScreen(vm, {}, { id, episode, voice -> played = Triple(id, episode, voice) })
+            }
+        }
+        waitForText("Продолжить · серия 4 · 12:34")
+        compose.onNodeWithText("Продолжить · серия 4 · 12:34").assertIsDisplayed().performClick()
+        assertEquals(Triple(111L, 4, "Studio A"), played)
+        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 4"))
+        compose.onNodeWithContentDescription("Действия с серией 4").performClick()
+        compose.onNodeWithText("Отметить просмотренной").performClick()
+        waitForText("Смотреть серию 5")
+        compose.onNodeWithText("Смотреть серию 5").assertIsDisplayed()
+        capture("details-next-episode")
     }
 
     @Test
@@ -543,7 +733,7 @@ class UiSmokeTest {
         val series =
             listOf(
                 com.anirust.app.domain.model.SeriesEntry("1", "Текущая история", 0),
-                com.anirust.app.domain.model.SeriesEntry("2", second, 1),
+                com.anirust.app.domain.model.SeriesEntry("2", second, 1, year = 2007),
                 com.anirust.app.domain.model.SeriesEntry("3", "Полнометражное завершение", 2),
             )
         compose.setContent {
@@ -552,6 +742,8 @@ class UiSmokeTest {
         compose.onNodeWithText("Сезоны и части · 3").performClick()
         compose.onNodeWithText("Текущая часть").assertIsDisplayed()
         compose.onNodeWithText(second).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("series_poster_2", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("2 в порядке просмотра · 2007").assertIsDisplayed()
         capture("season-picker-long-titles")
         compose.onNodeWithText(second).performClick()
         assertEquals("2", selected)
@@ -597,10 +789,13 @@ class UiSmokeTest {
             }
         }
         compose.waitUntil(5000) { !vm.uiState.value.isLoading }
-        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Новые · 5"))
-        compose.onNodeWithText("Новые · 5").assertIsSelected()
+        compose
+            .onNodeWithTag("episode_list")
+            .performScrollToNode(hasText("Показать просмотренные · 3"))
+        compose.onNodeWithText("Показать просмотренные · 3").assertIsDisplayed()
         compose.onNodeWithText("Серия 2").assertDoesNotExist()
-        compose.onNodeWithText("Все · 8").performClick()
+        compose.onNodeWithText("Показать просмотренные · 3").performClick()
+        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 2"))
         compose
             .onNodeWithText("Серия 2")
             .performScrollTo()
@@ -614,8 +809,10 @@ class UiSmokeTest {
         compose.onNodeWithText("Серия 2").assert(!hasContentDescription("Просмотрено"))
         compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 1"))
         compose.onNodeWithText("Серия 1").assert(hasContentDescription("Просмотрено"))
-        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Новые · 7"))
-        compose.onNodeWithText("Новые · 7").performClick()
+        compose
+            .onNodeWithTag("episode_list")
+            .performScrollToNode(hasText("Скрыть просмотренные · 1"))
+        compose.onNodeWithText("Скрыть просмотренные · 1").performClick()
         api.serverRate = api.serverRate.copy(episodes = 8)
         compose.runOnUiThread { account.sync() }
         compose.waitUntil(5000) { repo.state.value.rates.single().episodes == 8 }
@@ -623,9 +820,64 @@ class UiSmokeTest {
             .onNodeWithTag("episode_list")
             .performScrollToNode(hasText("Нет непросмотренных серий"))
         compose.onNodeWithText("Нет непросмотренных серий").assertIsDisplayed()
-        compose.onNodeWithText("Показать просмотренные").performScrollTo().performClick()
+        compose
+            .onNodeWithTag("episode_list")
+            .performScrollToNode(hasText("Показать просмотренные · 8"))
+        compose.onNodeWithText("Показать просмотренные · 8").performClick()
         compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 1"))
         compose.onNodeWithText("Серия 1").assert(hasContentDescription("Просмотрено"))
+    }
+
+    @Test
+    fun completedEpisodesAreCollapsedAcrossDubbingsAndCanBeReopened() {
+        val completed =
+            WatchHistoryItem(
+                animeId = 111,
+                animeTitle = "Наруто",
+                episodeId = "111_1",
+                episodeNumber = 1,
+                dubbing = "Dream Cast — многоголосая озвучка",
+                playbackPositionMs = 120000,
+                durationMs = 120000,
+            )
+        val vm =
+            detailsViewModel(
+                "Studio A",
+                listOf(
+                    completed,
+                    completed.copy(
+                        episodeId = "111_2",
+                        episodeNumber = 2,
+                        playbackPositionMs = 60000,
+                    ),
+                ),
+            )
+        var played: Int? = null
+        compose.setContent {
+            AnirustTheme { DetailsScreen(vm, {}, { _, episode, _ -> played = episode }) }
+        }
+        compose.waitUntil(5000) { !vm.uiState.value.isLoading }
+        compose.runOnUiThread { vm.selectDubbing("Studio A") }
+        compose.waitForIdle()
+        compose
+            .onNodeWithTag("episode_list")
+            .performScrollToNode(hasText("Показать просмотренные · 1"))
+        compose.onNodeWithText("Серия 1").assertDoesNotExist()
+        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 2"))
+        compose.onNodeWithText("Серия 2").assertIsDisplayed()
+        compose.onNodeWithText("Показать просмотренные · 1").performScrollTo().performClick()
+        compose.onNodeWithText("Серия 1").performScrollTo().performClick()
+        assertEquals(1, played)
+        compose.onNodeWithText("Скрыть просмотренные · 1").performScrollTo().performClick()
+        compose.onNodeWithText("Серия 1").assertDoesNotExist()
+        capture("episodes-watched-collapsed")
+        compose.runOnUiThread { vm.selectSeries("112") }
+        compose.waitForIdle()
+        compose.waitUntil(5000) {
+            !vm.uiState.value.isLoading && vm.uiState.value.anime?.id == 112L
+        }
+        compose.onNodeWithTag("episode_list").performScrollToNode(hasText("Серия 1"))
+        compose.onNodeWithText("Серия 1").assertIsDisplayed()
     }
 
     @Test
@@ -704,7 +956,7 @@ class UiSmokeTest {
         compose.waitForIdle()
     }
 
-    private fun testContainer(context: Context): AppContainer {
+    private fun testContainer(context: Context, onboardingCompleted: Boolean = true): AppContainer {
         val database =
             Room.inMemoryDatabaseBuilder(context, AnirustDatabase::class.java)
                 .allowMainThreadQueries()
@@ -717,10 +969,13 @@ class UiSmokeTest {
             override val animeRepository =
                 AnimeRepository(FakeYummyApi(), FakeShikimoriApi(), KodikResolver(OkHttpClient()))
             override val favoritesRepository = FavoritesRepository(database.favoritesDao())
-            override val watchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao())
-            override val settingsRepository = SettingsRepository(context)
+            override val settingsRepository =
+                SettingsRepository(context).apply { if (onboardingCompleted) completeOnboarding() }
+            override val watchHistoryRepository =
+                WatchHistoryRepository(database.watchHistoryDao(), settingsRepository)
             override val favoritesUseCase = FavoritesUseCase(favoritesRepository, messages)
-            override val watchHistoryUseCase = WatchHistoryUseCase(watchHistoryRepository)
+            override val watchHistoryUseCase =
+                WatchHistoryUseCase(watchHistoryRepository, settingsRepository)
             override val searchAnimeUseCase = SearchAnimeUseCase(animeRepository)
             override val getAnimeDetailsUseCase = GetAnimeDetailsUseCase(animeRepository)
             override val getEpisodesUseCase = GetEpisodesUseCase(animeRepository)

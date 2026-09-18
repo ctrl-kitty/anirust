@@ -60,6 +60,8 @@ data class YummyViewingOrder(
     @param:Json(name = "anime_id") val animeId: Long? = null,
     @param:Json(name = "title") val title: String? = null,
     @param:Json(name = "data") val data: YummyViewingData? = null,
+    @param:Json(name = "poster") val poster: YummyPoster? = null,
+    @param:Json(name = "year") val year: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

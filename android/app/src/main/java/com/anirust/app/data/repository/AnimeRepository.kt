@@ -147,7 +147,13 @@ class AnimeRepository(
                 val yummyId = resolveYummyId(animeId)
                 val detail = detail(yummyId)
                 val current =
-                    SeriesEntry(animeId.toString(), detail.title.text() ?: "Основной сезон", 0)
+                    SeriesEntry(
+                        animeId.toString(),
+                        detail.title.text() ?: "Основной сезон",
+                        0,
+                        detail.poster?.bestUrl,
+                        detail.year,
+                    )
                 val entries =
                     detail.viewingOrder.orEmpty().mapNotNull {
                         val id = it.animeId?.takeIf { id -> id > 0 } ?: return@mapNotNull null
@@ -155,6 +161,8 @@ class AnimeRepository(
                             if (id == yummyId) animeId.toString() else id.toString(),
                             it.title.text() ?: "Сезон / Часть",
                             it.data?.index,
+                            it.poster?.bestUrl ?: if (id == yummyId) current.posterUrl else null,
+                            it.year ?: if (id == yummyId) current.year else null,
                         )
                     }
                 (if (entries.any { it.id == current.id }) entries else listOf(current) + entries)

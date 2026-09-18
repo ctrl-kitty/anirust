@@ -31,7 +31,7 @@ fun ShikimoriListsScreen(
     var filter by rememberSaveable(state.user?.id) { mutableStateOf<String?>("watching") }
     var edit by remember(state.user?.id) { mutableStateOf<ShikimoriRate?>(null) }
     val filtered = state.rates.filter { filter == null || it.status == filter }
-    LaunchedEffect(Unit) { viewModel.refreshIfStale() }
+    val online = rememberOnline()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -104,6 +104,16 @@ fun ShikimoriListsScreen(
                     }
                 }
                 if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                if (!online && state.rates.isNotEmpty())
+                    item {
+                        Text(
+                            "Офлайн · сохранённая копия списков",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                if (state.busy && state.rates.isEmpty())
+                    item { LoadingView("Загружаем твои списки…") }
                 if (state.error != null || state.needsLogin)
                     item {
                         Card(
@@ -141,6 +151,7 @@ fun ShikimoriListsScreen(
                     val anime = rate.anime.toAnime()
                     Card(
                         onClick = { onOpenAnime(anime.id) },
+                        modifier = Modifier.animateItem(),
                         colors =
                             CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow

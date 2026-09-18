@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface FavoritesDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun restoreIfAbsent(entity: FavoriteEntity)
 
     @Query("SELECT * FROM favorites ORDER BY addedAt DESC")
     fun getAllFavorites(): Flow<List<FavoriteEntity>>

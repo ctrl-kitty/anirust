@@ -109,19 +109,7 @@ fun FilterTabChip(
 
 @Composable
 fun LoadingView(message: String = "Загружаем…", modifier: Modifier = Modifier) {
-    Column(
-        modifier.fillMaxWidth().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
-    ) {
-        CircularProgressIndicator(Modifier.size(40.dp))
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-    }
+    LoadingSkeleton(message, modifier.padding(horizontal = 24.dp))
 }
 
 @Composable

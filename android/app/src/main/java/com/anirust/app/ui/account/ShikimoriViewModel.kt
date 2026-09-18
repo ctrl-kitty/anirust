@@ -6,13 +6,19 @@ import androidx.lifecycle.viewModelScope
 import com.anirust.app.BuildConfig
 import com.anirust.app.data.local.ShikimoriOAuthConfig
 import com.anirust.app.data.remote.shikimori.ShikimoriRate
+import com.anirust.app.data.repository.SettingsRepository
 import com.anirust.app.data.repository.ShikimoriAccountRepository
+import com.anirust.app.data.repository.ShikimoriSyncScheduler
 import com.anirust.app.domain.model.Anime
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class ShikimoriViewModel(private val repository: ShikimoriAccountRepository) : ViewModel() {
+class ShikimoriViewModel(
+    private val repository: ShikimoriAccountRepository,
+    intervalMinutes: StateFlow<Int> = MutableStateFlow(SettingsRepository.DEFAULT_SYNC_INTERVAL),
+) : ViewModel() {
     val state = repository.state
     private var actionJob: Job? = null
 
@@ -21,23 +27,9 @@ class ShikimoriViewModel(private val repository: ShikimoriAccountRepository) : V
         actionJob = viewModelScope.launch { action() }
     }
 
-    init {
-        viewModelScope.launch {
-            state.first { !it.initializing }
-            refreshIfStale()
-        }
-    }
+    private val syncScheduler = ShikimoriSyncScheduler(repository, intervalMinutes)
 
-    fun refreshIfStale() {
-        val current = state.value
-        if (
-            current.user != null &&
-                !current.needsLogin &&
-                !current.busy &&
-                System.currentTimeMillis() - current.lastSync > 60_000
-        )
-            sync()
-    }
+    suspend fun runAutoSync() = syncScheduler.run()
 
     fun sync() {
         launchAction { repository.sync() }
@@ -68,9 +60,12 @@ class ShikimoriViewModel(private val repository: ShikimoriAccountRepository) : V
         launchAction { if (repository.deleteRate(rate)) onSuccess() }
     }
 
-    class Factory(private val repository: ShikimoriAccountRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: ShikimoriAccountRepository,
+        private val intervalMinutes: StateFlow<Int>,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ShikimoriViewModel(repository) as T
+            ShikimoriViewModel(repository, intervalMinutes) as T
     }
 }

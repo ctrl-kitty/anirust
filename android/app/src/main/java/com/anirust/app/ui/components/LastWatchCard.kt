@@ -19,6 +19,7 @@ fun LastWatchCard(
     onOpenExternal: () -> Unit,
     onClickAnime: () -> Unit,
     modifier: Modifier = Modifier,
+    nextEpisodeNumber: Int? = null,
 ) {
     Card(
         onClick = onClickAnime,
@@ -31,7 +32,10 @@ fun LastWatchCard(
             ),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Продолжить просмотр", style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (lastWatch.isCompleted) "Продолжить историю" else "Продолжить просмотр",
+                style = MaterialTheme.typography.labelLarge,
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -75,11 +79,23 @@ fun LastWatchCard(
                 Button(onClick = onResume, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.PlayArrow, null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (lastWatch.resumePositionMs == 0L) "Смотреть" else "Продолжить")
+                    Text(
+                        when {
+                            lastWatch.isCompleted && nextEpisodeNumber != null ->
+                                "Смотреть серию $nextEpisodeNumber"
+                            lastWatch.isCompleted -> "Выбрать серию"
+                            lastWatch.resumePositionMs == 0L -> "Смотреть"
+                            else -> "Продолжить"
+                        }
+                    )
                 }
-                FilledTonalIconButton(onClick = onOpenExternal, modifier = Modifier.size(52.dp)) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, "Открыть во внешнем плеере")
-                }
+                if (!lastWatch.isCompleted)
+                    FilledTonalIconButton(
+                        onClick = onOpenExternal,
+                        modifier = Modifier.size(52.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.OpenInNew, "Открыть во внешнем плеере")
+                    }
             }
         }
     }

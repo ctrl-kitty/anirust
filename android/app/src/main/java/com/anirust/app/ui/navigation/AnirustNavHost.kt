@@ -1,9 +1,10 @@
 package com.anirust.app.ui.navigation
 
-import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -21,17 +22,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,6 +42,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.anirust.app.di.AppContainer
 import com.anirust.app.ui.account.*
+import com.anirust.app.ui.components.AppSnackbarHost
+import com.anirust.app.ui.components.CompletionDialog
 import com.anirust.app.ui.details.DetailsScreen
 import com.anirust.app.ui.details.DetailsViewModel
 import com.anirust.app.ui.favorites.FavoritesViewModel
@@ -48,43 +52,88 @@ import com.anirust.app.ui.history.HistoryScreen
 import com.anirust.app.ui.history.HistoryViewModel
 import com.anirust.app.ui.home.HomeScreen
 import com.anirust.app.ui.home.HomeViewModel
+import com.anirust.app.ui.onboarding.OnboardingScreen
 import com.anirust.app.ui.player.PlayerScreen
 import com.anirust.app.ui.player.PlayerViewModel
 import com.anirust.app.ui.search.SearchScreen
 import com.anirust.app.ui.search.SearchViewModel
 import com.anirust.app.ui.settings.SettingsScreen
 import com.anirust.app.ui.settings.SettingsViewModel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 @Composable
 fun AnirustAppRoot(container: AppContainer) {
-    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val messageScope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val accountViewModel: ShikimoriViewModel? =
         container.shikimoriAccountRepository?.let {
-            viewModel(key = "shikimori-account", factory = ShikimoriViewModel.Factory(it))
+            viewModel(
+                key = "shikimori-account",
+                factory =
+                    ShikimoriViewModel.Factory(it, container.settingsRepository.syncIntervalMinutes),
+            )
         }
     LaunchedEffect(container.messages, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            container.messages.events.collect {
-                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            container.messages.events.collectLatest { message ->
+                val result =
+                    snackbar.showSnackbar(
+                        message.text,
+                        actionLabel = message.actionLabel,
+                        withDismissAction = true,
+                        duration =
+                            if (message.actionLabel != null) SnackbarDuration.Long
+                            else SnackbarDuration.Short,
+                    )
+                if (result == SnackbarResult.ActionPerformed)
+                    messageScope.launch { message.action?.invoke() }
             }
         }
     }
     LaunchedEffect(accountViewModel, lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            accountViewModel?.refreshIfStale()
-            kotlinx.coroutines.awaitCancellation()
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { accountViewModel?.runAutoSync() }
+    }
+    val progressSync =
+        remember(container) {
+            container.shikimoriAccountRepository?.let {
+                com.anirust.app.data.repository.WatchedProgressSync(
+                    container.watchHistoryUseCase,
+                    it,
+                    container.settingsRepository,
+                )
+            }
         }
+    LaunchedEffect(progressSync, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { progressSync?.run() }
     }
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val completion by container.watchHistoryUseCase.completionPrompt.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    if (currentRoute != Screen.Player.route)
+        completion?.let { item ->
+            CompletionDialog(
+                item,
+                onConfirm = { remember ->
+                    scope.launch { container.watchHistoryUseCase.confirmCompletion(remember) }
+                },
+                onDismiss = container.watchHistoryUseCase::dismissCompletionPrompt,
+            )
+        }
+    val startRoute = remember {
+        if (container.settingsRepository.onboardingCompleted.value) Screen.Home.route
+        else Screen.Onboarding.route
+    }
 
     AdaptiveAppScaffold(
         currentRoute,
+        snackbar,
         onNavigate = { route ->
             navController.navigate(route) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                popUpTo(Screen.Home.route) { saveState = true }
                 launchSingleTop = true
                 restoreState = true
             }
@@ -92,11 +141,43 @@ fun AnirustAppRoot(container: AppContainer) {
     ) { contentModifier ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination = startRoute,
             modifier = contentModifier,
-            enterTransition = { fadeIn(tween(180)) },
-            exitTransition = { fadeOut(tween(120)) },
+            enterTransition = {
+                if (
+                    BottomNavItems.any { it.route == initialState.destination.route } &&
+                        BottomNavItems.any { it.route == targetState.destination.route }
+                )
+                    fadeIn(tween(180))
+                else fadeIn(tween(240)) + slideInHorizontally(tween(280)) { it / 12 }
+            },
+            exitTransition = {
+                if (
+                    BottomNavItems.any { it.route == initialState.destination.route } &&
+                        BottomNavItems.any { it.route == targetState.destination.route }
+                )
+                    fadeOut(tween(120))
+                else fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { -it / 18 }
+            },
+            popEnterTransition = {
+                fadeIn(tween(300)) + slideInHorizontally(tween(320)) { -it / 12 }
+            },
+            popExitTransition = {
+                fadeOut(tween(180)) + slideOutHorizontally(tween(240)) { it / 18 }
+            },
         ) {
+            composable(Screen.Onboarding.route) {
+                OnboardingScreen(container.settingsRepository) { signIn ->
+                    val firstRun = !container.settingsRepository.onboardingCompleted.value
+                    container.settingsRepository.completeOnboarding()
+                    if (firstRun)
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Onboarding.route) { inclusive = true }
+                        }
+                    else navController.popBackStack()
+                    if (signIn) navController.navigate(Screen.ShikimoriAccount.route)
+                }
+            }
             composable(Screen.Home.route) {
                 val homeViewModel: HomeViewModel =
                     viewModel(
@@ -106,6 +187,7 @@ fun AnirustAppRoot(container: AppContainer) {
                                 container.favoritesUseCase,
                                 container.resolveStreamUseCase,
                                 container.settingsRepository,
+                                container.getEpisodesUseCase,
                             )
                     )
                 HomeScreen(
@@ -183,6 +265,7 @@ fun AnirustAppRoot(container: AppContainer) {
                 SettingsScreen(
                     viewModel = settingsViewModel,
                     onOpenAccount = { navController.navigate(Screen.ShikimoriAccount.route) },
+                    onShowOnboarding = { navController.navigate(Screen.Onboarding.route) },
                 )
             }
 
@@ -273,11 +356,17 @@ fun AnirustAppRoot(container: AppContainer) {
                                 container.resolveStreamUseCase,
                                 container.watchHistoryUseCase,
                                 container.settingsRepository,
+                                container.getEpisodesUseCase,
                             ),
                     )
                 PlayerScreen(
                     viewModel = playerViewModel,
                     onNavigateBack = { navController.popBackStack() },
+                    onPlayNext = { next, voice ->
+                        navController.navigate(Screen.Player.createRoute(animeId, next, voice)) {
+                            popUpTo(Screen.Player.route) { inclusive = true }
+                        }
+                    },
                 )
             }
         }
@@ -287,6 +376,7 @@ fun AnirustAppRoot(container: AppContainer) {
 @Composable
 private fun AdaptiveAppScaffold(
     currentRoute: String?,
+    snackbar: SnackbarHostState,
     onNavigate: (String) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -317,6 +407,7 @@ private fun AdaptiveAppScaffold(
                 }
             Scaffold(
                 modifier = Modifier.weight(1f),
+                snackbarHost = { AppSnackbarHost(snackbar) },
                 bottomBar = {
                     if (showNavigation && !useRail)
                         NavigationBar(

@@ -20,6 +20,8 @@ fun EpisodeItem(
     onPlayExternal: () -> Unit,
     onSelectDubbing: () -> Unit,
     modifier: Modifier = Modifier,
+    progress: Float = 0f,
+    onMarkWatched: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Card(
@@ -60,6 +62,20 @@ fun EpisodeItem(
                     Icon(Icons.Outlined.MoreVert, "Действия с серией " + episode.number)
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (onMarkWatched != null)
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (isWatched) "Снять отметку просмотра"
+                                    else "Отметить просмотренной"
+                                )
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.Done, null) },
+                            onClick = {
+                                menuOpen = false
+                                onMarkWatched()
+                            },
+                        )
                     DropdownMenuItem(
                         text = { Text("Выбрать озвучку") },
                         leadingIcon = { Icon(Icons.Outlined.RecordVoiceOver, null) },
@@ -78,6 +94,14 @@ fun EpisodeItem(
                     )
                 }
             }
+        }
+        if (!isWatched && progress > 0f) {
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            Text(
+                "Просмотрено ${(progress * 100).toInt()}%",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }

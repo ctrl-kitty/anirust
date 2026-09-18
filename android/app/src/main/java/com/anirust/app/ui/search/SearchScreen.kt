@@ -54,13 +54,18 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(state.results, key = { it.id }) { anime ->
-                        AnimeCard(anime, onClick = { onNavigateToDetails(anime.id) })
+                        AnimeCard(
+                            anime,
+                            onClick = { onNavigateToDetails(anime.id) },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
             } else
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     when {
-                        state.isLoading -> LoadingView("Ищем твою следующую историю…")
+                        state.isLoading ->
+                            LoadingSkeleton("Ищем твою следующую историю…", posters = true)
                         state.error != null ->
                             ErrorView(state.error!!, { viewModel.searchImmediately(state.query) })
                         state.hasSearched ->

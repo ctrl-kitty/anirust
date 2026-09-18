@@ -20,6 +20,7 @@ data class WatchHistoryEntity(
     val playbackPositionMs: Long,
     val durationMs: Long,
     val lastWatchedTimestamp: Long,
+    val completionOverride: Boolean? = null,
 ) {
     fun toDomain(): WatchHistoryItem =
         WatchHistoryItem(
@@ -36,6 +37,7 @@ data class WatchHistoryEntity(
             playbackPositionMs = playbackPositionMs,
             durationMs = durationMs,
             lastWatchedTimestamp = lastWatchedTimestamp,
+            completionOverride = completionOverride,
         )
 
     companion object {
@@ -55,6 +57,7 @@ data class WatchHistoryEntity(
                 playbackPositionMs = item.playbackPositionMs,
                 durationMs = item.durationMs,
                 lastWatchedTimestamp = item.lastWatchedTimestamp,
+                completionOverride = item.completionOverride,
             )
     }
 }

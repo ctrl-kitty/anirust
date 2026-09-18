@@ -56,7 +56,7 @@ fun FavoritesScreen(
             }
             Spacer(Modifier.height(16.dp))
             when {
-                state.isLoading -> LoadingView()
+                state.isLoading -> LoadingSkeleton("Загружаем коллекцию…", posters = true)
                 state.items.isEmpty() ->
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                         EmptyView(
@@ -85,6 +85,7 @@ fun FavoritesScreen(
                                     episodesCount = item.episodesCount,
                                 ),
                                 onClick = { onNavigateToDetails(item.animeId) },
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }

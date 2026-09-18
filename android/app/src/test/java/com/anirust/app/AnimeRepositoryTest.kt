@@ -87,10 +87,53 @@ class AnimeRepositoryTest {
             moshi
                 .adapter(YummyDetailResponse::class.java)
                 .fromJson(
-                    """{"response":{"anime_id":111,"viewing_order":[{"anime_id":119,"title":"Ураганные хроники","data":{"text":"продолжение","index":1}}]}}"""
+                    """{"response":{"anime_id":111,"viewing_order":[{"anime_id":119,"title":"Ураганные хроники","poster":{"medium":"//static.yani.tv/119.webp"},"year":2007,"data":{"text":"продолжение","index":1}}]}}"""
                 )!!
                 .response!!
         assertEquals("Ураганные хроники", detail.viewingOrder!!.single().title)
+        assertEquals(
+            "https://static.yani.tv/119.webp",
+            detail.viewingOrder.single().poster!!.bestUrl,
+        )
+        assertEquals(2007, detail.viewingOrder.single().year)
+    }
+
+    @Test
+    fun relatedCardsKeepPostersYearsAndCatalogOrderWithoutExtraRequests() = runTest {
+        var requests = 0
+        yummy.details = { id ->
+            requests++
+            YummyDetailResponse(
+                YummyAnimeDetail(
+                    animeId = id,
+                    title = "Current",
+                    poster = YummyPoster(big = "//images.test/current.webp"),
+                    year = 2002,
+                    viewingOrder =
+                        listOf(
+                            YummyViewingOrder(
+                                119,
+                                "Sequel",
+                                YummyViewingData(index = 2),
+                                YummyPoster(medium = "//images.test/sequel.webp"),
+                                2007,
+                            ),
+                            YummyViewingOrder(id, "Current", YummyViewingData(index = 0)),
+                            YummyViewingOrder(112, "Special", YummyViewingData(index = 1)),
+                        ),
+                )
+            )
+        }
+        val repo = AnimeRepository(yummy, shiki, resolver, StandardTestDispatcher(testScheduler))
+        val series = repo.getSeries(111).getOrThrow()
+        assertEquals(listOf("111", "112", "119"), series.map { it.id })
+        assertEquals("https://images.test/current.webp", series.first().posterUrl)
+        assertEquals(2002, series.first().year)
+        assertNull(series[1].posterUrl)
+        assertNull(series[1].year)
+        assertEquals("https://images.test/sequel.webp", series.last().posterUrl)
+        assertEquals(2007, series.last().year)
+        assertEquals(1, requests)
     }
 
     @Test

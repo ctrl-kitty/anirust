@@ -7,6 +7,7 @@ import com.anirust.app.domain.model.FavoriteItem
 import com.anirust.app.domain.model.FavoriteStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 class FavoritesUseCase(
     private val repository: FavoritesRepository,
@@ -30,8 +31,28 @@ class FavoritesUseCase(
             repository.addFavorite(anime, status)
         }
 
-    suspend fun removeFavorite(animeId: Long) =
-        change("Аниме удалено из локального списка") { repository.removeFavorite(animeId) }
+    suspend fun removeFavorite(animeId: Long): Boolean {
+        return try {
+            val previous = repository.getFavorite(animeId).first()
+            repository.removeFavorite(animeId)
+            messages.show(
+                "Аниме удалено из локального списка",
+                previous?.let { "Отменить" },
+                previous?.let {
+                    {
+                        change("Закладка восстановлена") { repository.restoreFavorite(it) }
+                        Unit
+                    }
+                },
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            messages.show("Не удалось удалить закладку", "Повторить") { removeFavorite(animeId) }
+            false
+        }
+    }
 
     suspend fun clearFavorites() =
         change("Локальные списки очищены. Списки Shikimori не изменены") { repository.clearAll() }
@@ -49,7 +70,9 @@ class FavoritesUseCase(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            messages.show("Не удалось изменить локальный список. Повтори попытку")
+            messages.show("Не удалось изменить локальный список. Повтори попытку", "Повторить") {
+                change(success, block)
+            }
             false
         }
     }

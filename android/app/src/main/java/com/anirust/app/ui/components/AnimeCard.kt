@@ -4,40 +4,79 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.ImageNotSupported
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.anirust.app.domain.model.Anime
 import java.util.Locale
 
 @Composable
-fun AnimePoster(url: String?, modifier: Modifier = Modifier) {
+fun AnimePoster(url: String?, modifier: Modifier = Modifier, title: String? = null) {
+    var loaded by remember(url) { mutableStateOf(false) }
+    var failed by remember(url) { mutableStateOf(false) }
+    var attempt by remember(url) { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val missing = url.isNullOrBlank()
     Box(
         modifier
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.Outlined.PlayCircle,
-            null,
-            Modifier.size(40.dp),
-            tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.45f),
-        )
-        if (!url.isNullOrBlank())
-            AsyncImage(
-                url,
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop,
-            )
+        if (!missing && !loaded && !failed) ShimmerBlock(Modifier.matchParentSize())
+        if (missing || failed)
+            Column(
+                Modifier.fillMaxWidth().padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (failed)
+                    IconButton(
+                        onClick = {
+                            failed = false
+                            attempt++
+                        }
+                    ) {
+                        Icon(Icons.Outlined.Refresh, "Повторить загрузку обложки")
+                    }
+                else Icon(Icons.Outlined.ImageNotSupported, "Обложка отсутствует")
+                title
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let {
+                        Text(
+                            it,
+                            modifier = Modifier.clearAndSetSemantics {},
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+            }
+        if (!missing)
+            key(url, attempt) {
+                AsyncImage(
+                    remember(url, attempt) { ImageRequest.Builder(context).data(url).build() },
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                    onSuccess = { loaded = true },
+                    onError = {
+                        loaded = false
+                        failed = true
+                    },
+                )
+            }
     }
 }
 
@@ -50,7 +89,11 @@ fun AnimeCard(anime: Anime, onClick: () -> Unit, modifier: Modifier = Modifier) 
             CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Box {
-            AnimePoster(anime.posterUrl, Modifier.fillMaxWidth().aspectRatio(0.72f))
+            AnimePoster(
+                anime.posterUrl,
+                Modifier.fillMaxWidth().aspectRatio(0.72f),
+                anime.displayTitle,
+            )
             if (anime.score != null && anime.score > 0f) {
                 Surface(
                     Modifier.padding(10.dp).align(Alignment.TopStart),

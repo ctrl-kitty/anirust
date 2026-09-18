@@ -15,7 +15,9 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val preferredDubbing: String = "",
     val useExternalPlayer: Boolean = false,
-    val externalPlayerPackage: String = SettingsRepository.PACKAGE_MPV,
+    val externalPlayerPackage: String = SettingsRepository.PACKAGE_MPVEX,
+    val syncIntervalMinutes: Int = SettingsRepository.DEFAULT_SYNC_INTERVAL,
+    val syncWatchedProgress: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -29,11 +31,15 @@ class SettingsViewModel(
                 settingsRepository.preferredDubbing,
                 settingsRepository.useExternalPlayer,
                 settingsRepository.externalPlayerPackage,
-            ) { dub, useExt, pkg ->
+                settingsRepository.syncIntervalMinutes,
+                settingsRepository.syncWatchedProgress,
+            ) { dub, useExt, pkg, interval, syncProgress ->
                 SettingsUiState(
                     preferredDubbing = dub,
                     useExternalPlayer = useExt,
                     externalPlayerPackage = pkg,
+                    syncIntervalMinutes = interval,
+                    syncWatchedProgress = syncProgress,
                 )
             }
             .stateIn(
@@ -53,6 +59,13 @@ class SettingsViewModel(
     fun setExternalPlayerPackage(pkg: String) {
         settingsRepository.setExternalPlayerPackage(pkg)
     }
+
+    fun setSyncIntervalMinutes(minutes: Int) {
+        settingsRepository.setSyncIntervalMinutes(minutes)
+    }
+
+    fun setSyncWatchedProgress(enabled: Boolean) =
+        settingsRepository.setSyncWatchedProgress(enabled)
 
     fun clearAllHistory() {
         viewModelScope.launch { watchHistoryUseCase.clearHistory() }

@@ -1,10 +1,13 @@
 package com.anirust.app
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -22,7 +25,9 @@ import com.anirust.app.domain.model.WatchHistoryItem
 import com.anirust.app.domain.usecase.*
 import com.anirust.app.ui.details.DetailsViewModel
 import com.anirust.app.ui.navigation.Screen
+import com.anirust.app.ui.player.ExternalPlaybackTracker
 import com.anirust.app.ui.player.ExternalPlayerHelper
+import com.anirust.app.ui.player.ExternalPlayerHost
 import com.anirust.app.ui.player.PlayerViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -36,7 +41,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -88,13 +95,60 @@ class AndroidFlowTest {
                 main.dispatcher,
             )
         favorites = FavoritesUseCase(FavoritesRepository(database.favoritesDao()))
-        history = WatchHistoryUseCase(WatchHistoryRepository(database.watchHistoryDao()))
+        history =
+            WatchHistoryUseCase(
+                WatchHistoryRepository(database.watchHistoryDao(), settings),
+                settings,
+            )
     }
 
     @After
     fun teardown() {
         store.clear()
         database.close()
+    }
+
+    @Test
+    fun nextEpisodeKeepsTheSelectedDubbingAndSkipsUnavailableVariants() = runTest {
+        val api =
+            FakeYummyApi().apply {
+                videos = {
+                    YummyVideosResponse(
+                        (1..3).map { number ->
+                            YummyVideoItem(
+                                number = number.toString(),
+                                iframeUrl = "https://cdn.test/$number.mp4",
+                                data =
+                                    YummyVideoData(
+                                        dubbing = if (number == 2) "Studio B" else "Studio A"
+                                    ),
+                            )
+                        }
+                    )
+                }
+            }
+        val repo =
+            AnimeRepository(api, FakeShikimoriApi(), KodikResolver(OkHttpClient()), main.dispatcher)
+        val vm =
+            PlayerViewModel(
+                111,
+                1,
+                "Studio A",
+                GetAnimeDetailsUseCase(repo),
+                ResolveStreamUseCase(repo),
+                history,
+                settings,
+                GetEpisodesUseCase(repo),
+            )
+        store.put("next-player", vm)
+        val ready =
+            kotlinx.coroutines.withTimeout(5000) {
+                vm.uiState.first { it.nextEpisodeNumber != null }
+            }
+        assertEquals(3, ready.nextEpisodeNumber)
+        assertEquals("Studio A", ready.dubbing)
+        vm.onPlaybackEnded()
+        assertTrue(vm.uiState.value.ended)
     }
 
     @Test
@@ -158,6 +212,188 @@ class AndroidFlowTest {
             ExternalPlayerHelper.externalHeaders(mapOf("Referer" to "https://player.test/")),
         )
     }
+
+    @Test
+    fun onboardingIntervalAndDubbingPersistWithoutOverridingChosenPlayer() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertEquals(15, settings.syncIntervalMinutes.value)
+        assertEquals(SettingsRepository.PACKAGE_MPVEX, settings.externalPlayerPackage.value)
+        assertFalse(settings.onboardingCompleted.value)
+        settings.setSyncIntervalMinutes(30)
+        settings.setPreferredDubbing("ТО Дубляжная")
+        settings.setExternalPlayerPackage(SettingsRepository.PACKAGE_VLC)
+        settings.completeOnboarding()
+        val restored = SettingsRepository(context)
+        assertEquals(30, restored.syncIntervalMinutes.value)
+        assertEquals("ТО Дубляжная", restored.preferredDubbing.value)
+        assertEquals(SettingsRepository.PACKAGE_VLC, restored.externalPlayerPackage.value)
+        assertTrue(restored.onboardingCompleted.value)
+        restored.setSyncIntervalMinutes(0)
+        assertEquals(5, restored.syncIntervalMinutes.value)
+    }
+
+    @Test
+    fun missingExternalPlayerReportsAnErrorWithoutLaunching() {
+        var message: String? = null
+        val context =
+            object : ContextWrapper(ApplicationProvider.getApplicationContext<Context>()) {
+                override fun startActivity(intent: Intent) {
+                    throw android.content.ActivityNotFoundException()
+                }
+            }
+        assertFalse(
+            ExternalPlayerHelper.openInExternalPlayer(
+                context,
+                StreamMedia("https://cdn.test/video.mp4"),
+                targetPackage = SettingsRepository.PACKAGE_MPVEX,
+                onError = { message = it },
+            )
+        )
+        assertNotNull(message)
+        assertTrue(message!!.contains("плеер"))
+    }
+
+    @Test
+    fun mpvExProgressSurvivesActivityRecreationAndUpdatesOnlyLaunchedEpisode() = runTest {
+        val watched =
+            WatchHistoryItem(
+                animeId = 111,
+                animeTitle = "Title",
+                episodeId = "111_2",
+                episodeNumber = 2,
+                dubbing = "Studio A",
+                playbackPositionMs = 42000,
+                durationMs = 120000,
+            )
+        history.recordWatch(watched)
+        history.recordWatch(watched.copy(dubbing = "Studio B"))
+        history.recordWatch(watched.copy(animeId = 112))
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).create()
+        val activity = controller.get()
+        val tracker = ExternalPlaybackTracker(activity, history)
+        controller.start().resume()
+        val context =
+            object : ContextWrapper(activity), ExternalPlayerHost {
+                override fun launchExternalPlayer(intent: Intent, historyId: String) {
+                    tracker.launchExternalPlayer(intent, historyId)
+                }
+            }
+        assertTrue(
+            ExternalPlayerHelper.openInExternalPlayer(
+                ContextWrapper(context),
+                StreamMedia("https://cdn.test/2.m3u8"),
+                targetPackage = SettingsRepository.PACKAGE_MPVEX,
+                positionMs = watched.resumePositionMs,
+                historyId = watched.historyId,
+            )
+        )
+        val launched = shadowOf(activity).nextStartedActivityForResult
+        assertEquals(0, launched.intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+        assertEquals(42000, launched.intent.getIntExtra("position", -1))
+        val saved = Bundle()
+        controller.pause().saveInstanceState(saved).stop().destroy()
+        val restored = Robolectric.buildActivity(ComponentActivity::class.java).create(saved)
+        ExternalPlaybackTracker(restored.get(), history)
+        restored.start().resume()
+        restored
+            .get()
+            .activityResultRegistry
+            .dispatchResult(
+                launched.requestCode,
+                Activity.RESULT_OK,
+                mpvExResult().putExtra("position", 120000).putExtra("duration", 120000),
+            )
+        val items = history.getAllHistory().first { rows -> rows.any { it.isCompleted } }
+        assertEquals(
+            listOf(watched.historyId),
+            items.filter { it.isCompleted }.map { it.historyId },
+        )
+        assertEquals(0L, items.first { it.historyId == watched.historyId }.resumePositionMs)
+        assertTrue(
+            items
+                .filter { it.historyId != watched.historyId }
+                .all { it.playbackPositionMs == 42000L }
+        )
+        restored.pause().stop().destroy()
+    }
+
+    @Test
+    fun mpvExCanceledOrMissingResultDoesNotCompleteEpisodeAndNextLaunchStillWorks() = runTest {
+        val item =
+            WatchHistoryItem(
+                111,
+                animeTitle = "Title",
+                episodeId = "111_1",
+                episodeNumber = 1,
+                playbackPositionMs = 10000,
+                durationMs = 120000,
+            )
+        history.recordWatch(item)
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).create()
+        val activity = controller.get()
+        val tracker = ExternalPlaybackTracker(activity, history)
+        controller.start().resume()
+        fun returnResult(code: Int, data: Intent?) {
+            tracker.launchExternalPlayer(Intent(Intent.ACTION_VIEW), item.historyId)
+            val request = shadowOf(activity).nextStartedActivityForResult.requestCode
+            activity.activityResultRegistry.dispatchResult(request, code, data)
+        }
+        returnResult(
+            Activity.RESULT_CANCELED,
+            mpvExResult().putExtra("position", 120000).putExtra("duration", 120000),
+        )
+        returnResult(Activity.RESULT_OK, null)
+        assertEquals(10000L, history.getAllHistory().first().single().playbackPositionMs)
+        returnResult(
+            Activity.RESULT_OK,
+            mpvExResult().putExtra("position", 65000L).putExtra("duration", 120000L),
+        )
+        val resumed =
+            history.getAllHistory().first { it.single().playbackPositionMs == 65000L }.single()
+        assertEquals(65000L, resumed.resumePositionMs)
+        assertFalse(resumed.isCompleted)
+        history.deleteItem(item.historyId)
+        returnResult(
+            Activity.RESULT_OK,
+            mpvExResult().putExtra("position", 120000).putExtra("duration", 120000),
+        )
+        assertTrue(history.getAllHistory().first().isEmpty())
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun mpvExIgnoresInvalidOrUnrelatedProgress() {
+        assertNull(ExternalPlaybackTracker.mpvExProgress(null))
+        assertNull(
+            ExternalPlaybackTracker.mpvExProgress(
+                Intent().putExtra("position", 10).putExtra("duration", 20)
+            )
+        )
+        assertNull(ExternalPlaybackTracker.mpvExProgress(mpvExResult().putExtra("duration", 20)))
+        assertNull(
+            ExternalPlaybackTracker.mpvExProgress(
+                mpvExResult().putExtra("position", -1).putExtra("duration", 20)
+            )
+        )
+        assertNull(
+            ExternalPlaybackTracker.mpvExProgress(
+                mpvExResult().putExtra("position", 10).putExtra("duration", 0)
+            )
+        )
+        assertNull(
+            ExternalPlaybackTracker.mpvExProgress(
+                mpvExResult().putExtra("position", "10").putExtra("duration", 20)
+            )
+        )
+        assertEquals(
+            20L to 20L,
+            ExternalPlaybackTracker.mpvExProgress(
+                mpvExResult().putExtra("position", 25).putExtra("duration", 20)
+            ),
+        )
+    }
+
+    private fun mpvExResult() = Intent("app.marlboroadvance.mpvex.ui.player.PlayerActivity.result")
 
     @Test
     fun selectedSeasonUsesItsOwnFavoriteAndHistory() = runTest {

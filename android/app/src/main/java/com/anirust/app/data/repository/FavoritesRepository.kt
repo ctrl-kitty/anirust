@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 class FavoritesRepository(private val dao: FavoritesDao) {
+    suspend fun restoreFavorite(item: FavoriteItem) {
+        dao.restoreIfAbsent(FavoriteEntity.fromDomain(item))
+    }
+
     fun getAllFavorites(): Flow<List<FavoriteItem>> {
         return dao.getAllFavorites().map { list -> list.map { it.toDomain() } }
     }

@@ -32,6 +32,11 @@ class HistoryViewModel(
 ) : ViewModel() {
 
     private var externalJob: Job? = null
+    private var lastExternalItem: WatchHistoryItem? = null
+
+    fun retryExternalPlayback(context: Context) {
+        lastExternalItem?.let { openInExternalPlayer(context, it) }
+    }
 
     fun cancelExternalPlayback() {
         externalJob?.cancel()
@@ -65,6 +70,7 @@ class HistoryViewModel(
     }
 
     fun openInExternalPlayer(context: Context, item: WatchHistoryItem) {
+        lastExternalItem = item
         if (_isResolving.value) return
         externalJob =
             viewModelScope.launch {
@@ -90,6 +96,8 @@ class HistoryViewModel(
                                 title = "${item.animeTitle} - Серия ${item.episodeNumber}",
                                 targetPackage = targetPkg,
                                 positionMs = item.resumePositionMs,
+                                historyId = item.historyId,
+                                onError = { _error.value = it },
                             )
                         if (launched)
                             watchHistoryUseCase.recordWatch(

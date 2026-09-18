@@ -14,9 +14,20 @@ data class WatchHistoryItem(
     val playbackPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val lastWatchedTimestamp: Long = System.currentTimeMillis(),
+    val completionOverride: Boolean? = null,
+    val completionThreshold: Int = 95,
 ) {
     val isCompleted: Boolean
-        get() = durationMs > 0 && playbackPositionMs >= (durationMs - 1000L).coerceAtLeast(1L)
+        get() =
+            completionOverride == true ||
+                (durationMs > 0 &&
+                    playbackPositionMs.toDouble() / durationMs >= completionThreshold / 100.0)
+
+    val progressPercent: Int
+        get() =
+            if (durationMs > 0)
+                (playbackPositionMs.toDouble() * 100 / durationMs).toInt().coerceIn(0, 100)
+            else 0
 
     val historyId: String
         get() = "${animeId}_${episodeNumber}_${dubbing ?: "default"}"

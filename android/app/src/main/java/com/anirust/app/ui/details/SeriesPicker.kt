@@ -12,11 +12,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.anirust.app.domain.model.SeriesEntry
+import com.anirust.app.ui.components.AnimePoster
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +31,7 @@ fun SeriesPicker(series: List<SeriesEntry>, selectedId: String?, onSelect: (Stri
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            AnimePoster(current?.posterUrl, Modifier.width(56.dp).height(80.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "Сезоны и части · ${series.size}",
@@ -91,10 +94,11 @@ fun SeriesPicker(series: List<SeriesEntry>, selectedId: String?, onSelect: (Stri
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                (index + 1).toString().padStart(2, '0'),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
+                            AnimePoster(
+                                entry.posterUrl,
+                                Modifier.width(80.dp)
+                                    .height(116.dp)
+                                    .testTag("series_poster_${entry.id}"),
                             )
                             Column(
                                 Modifier.weight(1f),
@@ -103,6 +107,15 @@ fun SeriesPicker(series: List<SeriesEntry>, selectedId: String?, onSelect: (Stri
                                 // Full titles wrap here; no guessed season numbers or ambiguous
                                 // truncation.
                                 Text(entry.title, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    listOfNotNull(
+                                            "${index + 1} в порядке просмотра",
+                                            entry.year?.toString(),
+                                        )
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 if (active)
                                     Text(
                                         "Текущая часть",

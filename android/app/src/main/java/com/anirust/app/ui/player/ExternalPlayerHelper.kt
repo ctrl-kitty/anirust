@@ -2,9 +2,9 @@ package com.anirust.app.ui.player
 
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.core.net.toUri
 import com.anirust.app.domain.model.StreamMedia
 
@@ -19,12 +19,19 @@ object ExternalPlayerHelper {
         title: String? = null,
         targetPackage: String? = MPV_PACKAGE,
         positionMs: Long = 0L,
+        historyId: String? = null,
+        onError: (String) -> Unit = {},
     ): Boolean {
+        val host = if (historyId != null) context.externalPlayerHost() else null
+        fun launch(intent: Intent) {
+            if (host != null && historyId != null) host.launchExternalPlayer(intent, historyId)
+            else context.startActivity(intent)
+        }
         val uri = stream.streamUrl.toUri()
         val intent =
             Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "video/*")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (host == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
                 // mpvEx consumes User-Agent first, then the remaining name/value pairs.
                 // Keep this order for the chooser too; stock mpv-android ignores headers.
@@ -48,42 +55,46 @@ object ExternalPlayerHelper {
         if (!targetPackage.isNullOrBlank() && targetPackage != "system_chooser") {
             try {
                 val packageIntent = Intent(intent).setPackage(targetPackage)
-                context.startActivity(packageIntent)
+                launch(packageIntent)
                 return true
             } catch (_: ActivityNotFoundException) {
-                // Specified player (e.g. MPV) not installed, fall through to Chooser
+                onError(
+                    "Выбранный плеер не установлен. Установи его или выбери встроенный в настройках"
+                )
+                return false
             } catch (_: SecurityException) {
-                // An installed package may not expose an accessible video activity.
+                onError("Выбранный плеер недоступен. Выбери другой в настройках")
+                return false
+            } catch (_: IllegalStateException) {
+                onError("Дождитесь возврата из внешнего плеера")
+                return false
             }
         }
 
         // Fallback: system chooser
         return try {
             if (intent.resolveActivity(context.packageManager) == null) {
-                Toast.makeText(
-                        context,
-                        "Установите mpvEx, MPV или VLC для просмотра во внешнем плеере",
-                        Toast.LENGTH_LONG,
-                    )
-                    .show()
+                onError("Установите mpvEx, MPV или VLC для просмотра во внешнем плеере")
                 return false
             }
             val chooserIntent =
                 Intent.createChooser(intent, "Выберите видеоплеер").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (host == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-            context.startActivity(chooserIntent)
+            launch(chooserIntent)
             true
-        } catch (e: Exception) {
-            Toast.makeText(
-                    context,
-                    "Не найден подходящий видеоплеер: ${e.message}",
-                    Toast.LENGTH_LONG,
-                )
-                .show()
+        } catch (_: Exception) {
+            onError("Не удалось открыть внешний плеер. Проверьте, что он установлен")
             false
         }
     }
+
+    private fun Context.externalPlayerHost(): ExternalPlayerHost? =
+        when (this) {
+            is ExternalPlayerHost -> this
+            is ContextWrapper -> baseContext.takeIf { it !== this }?.externalPlayerHost()
+            else -> null
+        }
 
     internal fun externalHeaders(headers: Map<String, String>): Array<String> {
         val userAgent =

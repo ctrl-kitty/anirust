@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
+    data object Onboarding : Screen("onboarding", "Добро пожаловать")
+
     data object Home : Screen("home", "Главная", Icons.Default.Home)
 
     data object Search : Screen("search", "Поиск", Icons.Default.Search)

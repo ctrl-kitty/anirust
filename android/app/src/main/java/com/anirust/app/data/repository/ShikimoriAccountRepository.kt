@@ -100,9 +100,9 @@ class ShikimoriAccountRepository(
         messages.show("Списки Shikimori синхронизированы")
     }
 
-    suspend fun sync(): Boolean = operation {
+    suspend fun sync(notify: Boolean = true): Boolean = operation {
         downloadRates()
-        messages.show("Списки Shikimori синхронизированы")
+        if (notify) messages.show("Списки Shikimori синхронизированы")
     }
 
     suspend fun signOut(): Boolean = operation {
@@ -112,86 +112,86 @@ class ShikimoriAccountRepository(
         messages.show("Аккаунт Shikimori отключён. Локальные списки сохранены")
     }
 
-    suspend fun saveRate(anime: Anime, status: String, score: Int, episodes: Int): Boolean =
-        operation {
-            requireAccount(ShikimoriListStatus.entries.any { it.apiValue == status }) {
-                "Выбери статус списка"
-            }
-            requireAccount(score in 0..10) { "Оценка должна быть от 0 до 10" }
-            requireAccount(
-                episodes >= 0 && (anime.episodesCount == null || episodes <= anime.episodesCount)
-            ) {
-                "Проверь число просмотренных серий"
-            }
-            val shikiId =
-                anime.shikimoriId?.takeIf { it > 0 }
-                    ?: anime.id.takeIf { it < 0 && it != Long.MIN_VALUE }?.let { -it }
-                    ?: throw AccountValidationException(
-                        "Для этого аниме нет подтверждённого ID Shikimori"
-                    )
-            val account = requireSession()
-            val existing = account.rates.firstOrNull { it.anime.id == shikiId }
-            val changes = linkedMapOf<String, String>()
-            if (existing == null || status != existing.status) changes["status"] = status
-            if (existing == null || score != existing.score) changes["score"] = score.toString()
-            if (existing == null || episodes != existing.episodes)
-                changes["episodes"] = episodes.toString()
-            if (changes.isEmpty()) {
-                messages.show("В списке ничего не изменилось")
-                return@operation
-            }
-            if (existing == null) {
-                changes["user_id"] = account.user.id.toString()
-                changes["target_id"] = shikiId.toString()
-                changes["target_type"] = "Anime"
-            }
-            val response = authorized { current, header ->
-                if (existing == null)
-                    api.createRate(header, current.config.appName, RateRequest(changes))
-                else
-                    api.updateRate(
-                        header,
-                        current.config.appName,
-                        existing.id,
-                        RateRequest(changes),
-                    )
-            }
-            requireAccount(
-                response.id > 0 &&
-                    (!changes.containsKey("status") || response.status == status) &&
-                    (!changes.containsKey("score") || response.score == score) &&
-                    (!changes.containsKey("episodes") || response.episodes == episodes)
-            ) {
-                "Shikimori не подтвердил изменение. Обнови список и проверь результат"
-            }
-            val saved =
-                ShikimoriRate(
-                    response.id,
-                    response.status,
-                    response.score,
-                    response.episodes,
-                    existing?.anime
-                        ?: ShikimoriListAnime(
-                            shikiId,
-                            anime.originalTitle,
-                            anime.title,
-                            anime.posterUrl?.let(::ShikimoriImage),
-                            anime.episodesCount ?: 0,
-                        ),
-                )
-            val current = requireSession()
-            persistRemoteChange(
-                current.copy(
-                    rates =
-                        (current.rates.filterNot { it.anime.id == shikiId } + saved).sortedBy {
-                            it.anime.toAnime().displayTitle
-                        }
-                )
-            )
-            messages.show(
-                "Shikimori: «" + anime.displayTitle + "» — " + ShikimoriListStatus.titleOf(status)
-            )
+    suspend fun saveRate(
+        anime: Anime,
+        status: String,
+        score: Int,
+        episodes: Int,
+        expectedUserId: Long? = null,
+    ): Boolean = operation {
+        if (expectedUserId != null && session?.user?.id != expectedUserId) return@operation
+        requireAccount(ShikimoriListStatus.entries.any { it.apiValue == status }) {
+            "Выбери статус списка"
         }
+        requireAccount(score in 0..10) { "Оценка должна быть от 0 до 10" }
+        requireAccount(
+            episodes >= 0 && (anime.episodesCount == null || episodes <= anime.episodesCount)
+        ) {
+            "Проверь число просмотренных серий"
+        }
+        val shikiId =
+            anime.shikimoriId?.takeIf { it > 0 }
+                ?: anime.id.takeIf { it < 0 && it != Long.MIN_VALUE }?.let { -it }
+                ?: throw AccountValidationException(
+                    "Для этого аниме нет подтверждённого ID Shikimori"
+                )
+        val account = requireSession()
+        val existing = account.rates.firstOrNull { it.anime.id == shikiId }
+        val changes = linkedMapOf<String, String>()
+        if (existing == null || status != existing.status) changes["status"] = status
+        if (existing == null || score != existing.score) changes["score"] = score.toString()
+        if (existing == null || episodes != existing.episodes)
+            changes["episodes"] = episodes.toString()
+        if (changes.isEmpty()) {
+            messages.show("В списке ничего не изменилось")
+            return@operation
+        }
+        if (existing == null) {
+            changes["user_id"] = account.user.id.toString()
+            changes["target_id"] = shikiId.toString()
+            changes["target_type"] = "Anime"
+        }
+        val response = authorized { current, header ->
+            if (existing == null)
+                api.createRate(header, current.config.appName, RateRequest(changes))
+            else api.updateRate(header, current.config.appName, existing.id, RateRequest(changes))
+        }
+        requireAccount(
+            response.id > 0 &&
+                (!changes.containsKey("status") || response.status == status) &&
+                (!changes.containsKey("score") || response.score == score) &&
+                (!changes.containsKey("episodes") || response.episodes == episodes)
+        ) {
+            "Shikimori не подтвердил изменение. Обнови список и проверь результат"
+        }
+        val saved =
+            ShikimoriRate(
+                response.id,
+                response.status,
+                response.score,
+                response.episodes,
+                existing?.anime
+                    ?: ShikimoriListAnime(
+                        shikiId,
+                        anime.originalTitle,
+                        anime.title,
+                        anime.posterUrl?.let(::ShikimoriImage),
+                        anime.episodesCount ?: 0,
+                    ),
+            )
+        val current = requireSession()
+        persistRemoteChange(
+            current.copy(
+                rates =
+                    (current.rates.filterNot { it.anime.id == shikiId } + saved).sortedBy {
+                        it.anime.toAnime().displayTitle
+                    }
+            )
+        )
+        messages.show(
+            "Shikimori: «" + anime.displayTitle + "» — " + ShikimoriListStatus.titleOf(status)
+        )
+    }
 
     suspend fun deleteRate(rate: ShikimoriRate): Boolean = operation {
         val current = requireSession()

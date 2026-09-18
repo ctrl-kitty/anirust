@@ -119,7 +119,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val watchHistoryRepository: WatchHistoryRepository by lazy {
-        WatchHistoryRepository(database.watchHistoryDao())
+        WatchHistoryRepository(database.watchHistoryDao(), settingsRepository)
     }
 
     override val favoritesRepository: FavoritesRepository by lazy {
@@ -145,7 +145,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val watchHistoryUseCase: WatchHistoryUseCase by lazy {
-        WatchHistoryUseCase(watchHistoryRepository)
+        WatchHistoryUseCase(watchHistoryRepository, settingsRepository)
     }
 
     override val favoritesUseCase: FavoritesUseCase by lazy {

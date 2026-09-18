@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -44,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.anirust.app.domain.model.StreamMedia
+import com.anirust.app.ui.components.AppSnackbarHost
 import com.anirust.app.ui.components.ErrorView
 import com.anirust.app.ui.components.LoadingView
 import kotlinx.coroutines.delay
@@ -54,11 +56,20 @@ fun PlayerScreen(
     viewModel: PlayerViewModel,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayNext: (Int, String?) -> Unit = { _, _ -> },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.externalError) {
+        state.externalError?.let {
+            snackbar.showSnackbar(it, withDismissAction = true)
+            viewModel.clearExternalError()
+        }
+    }
     Scaffold(
         modifier.fillMaxSize(),
+        snackbarHost = { AppSnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
@@ -87,7 +98,7 @@ fun PlayerScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.openInExternalPlayer(context) },
+                        onClick = { if (viewModel.openInExternalPlayer(context)) onNavigateBack() },
                         enabled = state.stream != null && !state.isLoading,
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.OpenInNew, "Открыть во внешнем плеере")
@@ -108,7 +119,9 @@ fun PlayerScreen(
                         ErrorView(state.error!!, onRetry = viewModel::loadStream)
                         if (state.stream != null)
                             FilledTonalButton(
-                                onClick = { viewModel.openInExternalPlayer(context) }
+                                onClick = {
+                                    if (viewModel.openInExternalPlayer(context)) onNavigateBack()
+                                }
                             ) {
                                 Text("Попробовать внешний плеер")
                             }
@@ -116,6 +129,28 @@ fun PlayerScreen(
                 state.stream != null ->
                     Box(Modifier.fillMaxSize().background(Color.Black)) {
                         StreamPlayer(state.stream!!, viewModel)
+                        if (state.ended)
+                            Surface(
+                                Modifier.align(Alignment.Center).padding(24.dp),
+                                shape = MaterialTheme.shapes.large,
+                            ) {
+                                Column(
+                                    Modifier.padding(24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        "Серия просмотрена",
+                                        style = MaterialTheme.typography.titleLarge,
+                                    )
+                                    state.nextEpisodeNumber?.let { next ->
+                                        Button(onClick = { onPlayNext(next, state.dubbing) }) {
+                                            Text("Смотреть серию $next")
+                                        }
+                                    }
+                                    TextButton(onClick = onNavigateBack) { Text("К списку серий") }
+                                }
+                            }
                     }
             }
         }
@@ -135,6 +170,7 @@ private fun StreamPlayer(stream: StreamMedia, viewModel: PlayerViewModel) {
                 current.currentPosition,
                 current.duration,
                 current.playWhenReady,
+                finishing = true,
             )
         }
         fun release() {
@@ -146,6 +182,7 @@ private fun StreamPlayer(stream: StreamMedia, viewModel: PlayerViewModel) {
         }
         fun prepare() {
             if (player != null) return
+            viewModel.onPlaybackStarted()
             val state = viewModel.uiState.value
             val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers)
             val current =
@@ -170,6 +207,7 @@ private fun StreamPlayer(stream: StreamMedia, viewModel: PlayerViewModel) {
                         if (playbackState == Player.STATE_ENDED) {
                             current.playWhenReady = false
                             viewModel.saveHistoryProgress(current.duration, current.duration, false)
+                            viewModel.onPlaybackEnded()
                         }
                     }
                 }
